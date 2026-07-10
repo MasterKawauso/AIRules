@@ -1,4 +1,3 @@
-```powershell
 # init-ai-git.ps1
 
 # ==========================================================
@@ -6,7 +5,7 @@
 # - Select SSH key
 # - Configure Git SSH key
 # - Verify GitHub CLI
-# - Verify GitHub CLI authentication
+# - Auto re-authenticate GitHub CLI if needed
 # ==========================================================
 
 $ErrorActionPreference = "Stop"
@@ -20,14 +19,6 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Current directory is not a Git repository." -ForegroundColor Red
     exit 1
 }
-
-# ----------------------------------------------------------
-# GitHub Account
-# ----------------------------------------------------------
-
-do {
-    $GitHubUser = Read-Host "GitHub account name"
-} while ([string]::IsNullOrWhiteSpace($GitHubUser))
 
 # ----------------------------------------------------------
 # SSH Key Selection
@@ -61,10 +52,11 @@ for ($i = 0; $i -lt $keys.Count; $i++) {
 do {
     $input = Read-Host "Select SSH key number"
 
+    $selectedNumber = 0
     $valid =
-        [int]::TryParse($input, [ref]$null) -and
-        ([int]$input -ge 1) -and
-        ([int]$input -le $keys.Count)
+        [int]::TryParse($input, [ref]$selectedNumber) -and
+        ($selectedNumber -ge 1) -and
+        ($selectedNumber -le $keys.Count)
 
     if (-not $valid) {
         Write-Host "Invalid selection." -ForegroundColor Yellow
@@ -72,10 +64,10 @@ do {
 
 } until ($valid)
 
-$KeyPath = $keys[[int]$input - 1].FullName
+$KeyPath = $keys[$selectedNumber - 1].FullName
 
 Write-Host ""
-Write-Host "Using SSH Key: $($keys[[int]$input - 1].Name)" -ForegroundColor Green
+Write-Host "Using SSH Key: $($keys[$selectedNumber - 1].Name)" -ForegroundColor Green
 
 # ----------------------------------------------------------
 # Configure Git SSH
@@ -101,33 +93,49 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ----------------------------------------------------------
-# GitHub CLI Authentication Check
+# GitHub CLI Authentication Check / Auto Re-login
 # ----------------------------------------------------------
 
-gh auth status *> $null
+gh auth status -h github.com *> $null
 if ($LASTEXITCODE -ne 0) {
 
     Write-Host ""
-    Write-Host "========================================" -ForegroundColor Red
-    Write-Host "GitHub CLI authentication is invalid." -ForegroundColor Red
-    Write-Host "========================================" -ForegroundColor Red
+    Write-Host "========================================" -ForegroundColor Yellow
+    Write-Host "GitHub CLI authentication is invalid." -ForegroundColor Yellow
+    Write-Host "Re-authentication will be started." -ForegroundColor Yellow
+    Write-Host "========================================" -ForegroundColor Yellow
     Write-Host ""
 
-    Write-Host "Git operations using SSH will work." -ForegroundColor Yellow
-    Write-Host "However, GitHub API operations such as:" -ForegroundColor Yellow
-    Write-Host "  - gh pr create"
-    Write-Host "  - gh pr view"
-    Write-Host "  - gh issue create"
-    Write-Host "will fail until authentication is restored."
+    Write-Host "Logging out from github.com..." -ForegroundColor Cyan
+
+    gh auth logout -h github.com
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "Warning: gh auth logout failed or was cancelled." -ForegroundColor Yellow
+        Write-Host "Continuing to login anyway."
+    }
+
+    Write-Host ""
+    Write-Host "Starting GitHub CLI login..." -ForegroundColor Cyan
+    Write-Host "Please select the GitHub account you want to use." -ForegroundColor Cyan
     Write-Host ""
 
-    Write-Host "Please run the following commands once:" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "    gh auth logout -h github.com -u $GitHubUser"
-    Write-Host "    gh auth login -h github.com"
-    Write-Host ""
+    gh auth login -h github.com
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "Error: GitHub CLI login failed." -ForegroundColor Red
+        exit 1
+    }
 
-    exit 1
+    Write-Host ""
+    Write-Host "Re-checking GitHub CLI authentication..." -ForegroundColor Cyan
+
+    gh auth status -h github.com *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "Error: GitHub CLI authentication is still invalid." -ForegroundColor Red
+        exit 1
+    }
 }
 
 Write-Host ""
@@ -141,4 +149,3 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "AI Git initialization completed." -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-```
