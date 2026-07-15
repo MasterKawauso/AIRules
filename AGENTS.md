@@ -11,14 +11,14 @@ Codex/Claude Code共通の常時適用ルール。条件付きルールは同デ
 
 PLAN.md・PROGRESS.mdを読み、プロジェクト種別を判定して該当ルールを参照。必要なら冒頭で一行報告。
 
-## ルールモジュール（検知したら読んでから作業）
+## ルールモジュール（検知したら必ず読んでから作業）
 
 | 条件 | ファイル |
 |---|---|
 | 実装/修正/デバッグ | PITFALLS.md |
 | 実装/修正/デバッグ/設計 | THINKING.md |
 | 設計/実装計画 | DESIGN.md |
-| 設計を伴う実装・タスク分割・並列実装 | WORKFLOW.md |
+| 実装時 | WORKFLOW.md |
 | Unity/UE/Godot判定 | UNITY.md/UE5.md/GODOT.md |
 | ゲーム実装・修正全般 | GAME_COMMON.md |
 | レビュー・完了報告前 | REVIEW.md |

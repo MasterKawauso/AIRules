@@ -33,7 +33,14 @@ cd D:\AIRules\AIRules
 Codexは「グローバル `~/.codex/AGENTS.md` → プロジェクトの `AGENTS.md`」の順で**連結**して読む（後勝ち・合計32KiB上限）。
 そのため、過去に各プロジェクトへコピーした旧 `AGENTS.md` / `CodexSkills/` が残っていると、**古い矛盾したルールが新ルールを上書きする**。
 
-`deploy.ps1` 実行時に既知プロジェクトの検出結果が表示されるので、以下の方針で整理する。
+各プロジェクトを手動で確認し、以下の方針で整理する（deploy.ps1に自動検出機能はない）。
+
+```powershell
+# 例: プロジェクト置き場を検索（パスは自分の環境に合わせる）
+Get-ChildItem D:\ -Directory -Depth 1 | ForEach-Object {
+    Get-ChildItem $_.FullName -Include AGENTS.md,CodexSkills -Depth 1 -ErrorAction SilentlyContinue
+}
+```
 
 - 旧共通ルールのコピー（`CodexSkills/`・旧共通 `AGENTS.md`）→ 削除
 - プロジェクト固有の仕様が書かれた `AGENTS.md` → 残してよい（共通ルール部分だけ削る）

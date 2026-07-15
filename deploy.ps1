@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $repo       = $PSScriptRoot
-$stamp      = Get-Date -Format "yyyyMMdd_HHmmss"
+$stamp      = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $backupRoot = Join-Path $repo "backup\$stamp"
 $codexHome  = Join-Path $HOME ".codex"
 $claudeHome = Join-Path $HOME ".claude"
@@ -64,7 +64,35 @@ Get-ChildItem (Join-Path $repo "Claude\output-styles") -Filter *.md | ForEach-Ob
     Deploy-Raw $_.FullName (Join-Path $claudeHome "output-styles\$($_.Name)")
 }
 
-# 4. 旧構成ファイル（~/.claude/skills/ の旧ルール）をバックアップへ退避
+# 4. 配備先airules/の余剰ファイル（正本にないもの）をバックアップへ退避
+#    airules/はこのリポジトリが全面管理するため自動退避してよい
+$airulesNames = (Get-ChildItem (Join-Path $repo "airules") -Filter *.md).Name
+foreach ($h in @($codexHome, $claudeHome)) {
+    $dir = Join-Path $h "airules"
+    if (Test-Path $dir) {
+        Get-ChildItem $dir -File | Where-Object { $airulesNames -notcontains $_.Name } | ForEach-Object {
+            Backup-IfExists $_.FullName
+            Remove-Item $_.FullName -Force
+            Write-Host "  retired orphan: $($_.FullName)"
+        }
+    }
+}
+
+# 5. agents/・output-styles/はユーザー独自ファイルの可能性があるため警告表示のみ（自動削除しない）
+$checkDirs = @(
+    @{ Src = (Join-Path $repo "Claude\agents");        Dst = (Join-Path $claudeHome "agents") },
+    @{ Src = (Join-Path $repo "Claude\output-styles"); Dst = (Join-Path $claudeHome "output-styles") }
+)
+foreach ($c in $checkDirs) {
+    if (Test-Path $c.Dst) {
+        $srcNames = (Get-ChildItem $c.Src -Filter *.md).Name
+        Get-ChildItem $c.Dst -Filter *.md | Where-Object { $srcNames -notcontains $_.Name } | ForEach-Object {
+            Write-Host "  note: 正本にないファイル（必要なら手動整理）: $($_.FullName)"
+        }
+    }
+}
+
+# 6. 旧構成ファイル（~/.claude/skills/ の旧ルール）をバックアップへ退避
 $oldSkills = @("unity.md", "UnrealEngine.md", "REVIEW.md", "GAME_COMMON_MODULE.md")
 foreach ($f in $oldSkills) {
     $p = Join-Path $claudeHome "skills\$f"

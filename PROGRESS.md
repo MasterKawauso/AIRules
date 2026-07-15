@@ -2,6 +2,12 @@
 
 現在フェーズ: 本実装（ルール管理リポジトリのため参考値）
 
+## 2026-07-15
+
+- Claude×Codex相互レビューでリポジトリ全体を点検し整合性を修正: WORKFLOW.md（モデル選択質問を分担フロー開始時のみに限定・Codex↔Claude相互呼び出し手段とフォールバックを明記）/ GIT.md（main操作ルールの重複統合・リスト崩れ修正）/ REVIEW.md（REVIEW_STATE.md更新の例外明記）/ GAME_COMMON.md（インターフェース必須をフェーズ限定に）/ INSTALL.md（未実装の自動検出記述を手動手順へ修正）/ README.md（構成ツリーにoutput-styles・Cursor追記）
+- deploy.ps1: 配備先airules/の余剰ファイル自動退避（バックアップ付き）と、agents/・output-styles/の余剰ファイル警告表示を追加
+- ISSUE.md新設: Cursor配備未実装の課題を記録（訂正: 2026-07-04の「deploy.ps1にCursor配備セクション追加済み」は現行deploy.ps1に存在せず誤記または消失。実態は未実装）。repair_log.txt（UTF-16の作業ログ残骸）を削除
+
 ## 2026-07-09
 
 - airules/WORKFLOW.md（分担作業フロー）を新設: 設計→設計レビュー→タスク分割→Worker並列実装（1〜5・思考負荷1段下げ）→Workerごとにレビュー⇔修正→統合→統合レビュー。役割定義（Architect/Worker/Reviewer/Integrator）。AGENTS.mdモジュール表・deploy.ps1 Cursor変換メタに配線

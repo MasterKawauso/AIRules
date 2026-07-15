@@ -20,8 +20,12 @@ AIRules/
 │   └── GIT.md           # Git運用（PRレビューモード・init-ai-git確認含む）
 ├── Claude/
 │   ├── CLAUDE.md        # Claude Code 固有の入口（AGENTS.mdをインポート）
-│   └── agents/          # サブエージェント定義（architecture-reviewer / code-reviewer）
+│   ├── agents/          # サブエージェント定義（architecture-reviewer / code-reviewer）
+│   └── output-styles/   # 出力スタイル定義
+├── Cursor/
+│   └── core.mdc         # Cursor用共通ルール（deploy未対応・各プロジェクトへ手動配置。ISSUE.md参照）
 ├── deploy.ps1           # ~/.codex・~/.claude へバックアップ付き配備
+├── ISSUE.md             # 未完了課題トラッカー（チェックボックス管理）
 ├── init-ai-git.ps1      # AI用SSH鍵をリポジトリへ設定（ユーザーが手動実行）
 ├── INSTALL.md           # セットアップ・MCP導入手順
 └── PROGRESS.md          # 作業進捗
