@@ -17,15 +17,15 @@ AIRules/
 │   ├── GODOT.md         # Godot実装
 │   ├── GAME_COMMON.md   # 共通モジュール設計（エンジン非依存）
 │   ├── REVIEW.md        # コードレビュー（形式・観点）
-│   └── GIT.md           # Git運用（PRレビューモード・init-ai-git確認含む）
+│   ├── GIT.md           # Git運用（PRレビューモード・init-ai-git確認含む）
+│   └── GITHUB.md        # PR作成・レビュー対応・GitHub Issue管理
 ├── Claude/
 │   ├── CLAUDE.md        # Claude Code 固有の入口（AGENTS.mdをインポート）
 │   ├── agents/          # サブエージェント定義（architecture-reviewer / code-reviewer）
 │   └── output-styles/   # 出力スタイル定義
 ├── Cursor/
-│   └── core.mdc         # Cursor用共通ルール（deploy未対応・各プロジェクトへ手動配置。ISSUE.md参照）
+│   └── core.mdc         # Cursor用共通ルール（deploy未対応・各プロジェクトへ手動配置）
 ├── deploy.ps1           # ~/.codex・~/.claude へバックアップ付き配備
-├── ISSUE.md             # 未完了課題トラッカー（チェックボックス管理）
 ├── init-ai-git.ps1      # AI用SSH鍵をリポジトリへ設定（ユーザーが手動実行）
 ├── INSTALL.md           # セットアップ・MCP導入手順
 └── PROGRESS.md          # 作業進捗
