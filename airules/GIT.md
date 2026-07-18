@@ -23,6 +23,7 @@ Git操作（commit/branch/push等）時に適用。
 - 親リポジトリで勝手にcheckoutしない
 - 作業完了後、Integratorが成果物を統合する
 - worktree作成・削除で失敗した場合は停止して報告する
+- 原則としてmainブランチを握らない
 
 ## Git操作に失敗したら
 
