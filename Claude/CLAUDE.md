@@ -1,14 +1,10 @@
-# CLAUDE.md — Claude Code 入口
+# CLAUDE.md — Claude Code入口
 
 @~/.claude/AGENTS.md
 
-上記が正本。開始時確認と`~/.claude/airules/`の条件付き読込を行う。
+上記を正本とし、開始時確認と必要な`~/.claude/airules/`だけを1回読む。
 
-## Claude Codeの役割
+主担当は設計・仕様・レビュー・ゲームエンジン補助。実装・修正はCodex主担当だが、ユーザー指示時はClaudeも行う。
 
-主担当は設計・仕様・レビュー・ゲームエンジン補助。実装・修正はCodex主担当だが、指示時はClaudeも行う。
-
-## 固有運用
-
-- 設計を伴う実装前は`architecture-reviewer`、機能単位の完了時は`code-reviewer`を使う。軽微な修正・毎回の呼出しは不要
-- 大規模検索はExploreへ委譲し、独立作業は並列化する
+- `WORKFLOW.md`対象の設計は`architecture-reviewer`、機能差分は`code-reviewer`で確認する。軽微な変更や同じ差分への重複起動は不要
+- 大規模検索はExploreへ、独立作業は範囲と成果物を限定して委譲・並列化する

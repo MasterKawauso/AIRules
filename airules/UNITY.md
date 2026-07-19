@@ -1,44 +1,23 @@
-# UNITY — Unity実装ルール
+# UNITY — Unity実装
 
-`Assets/`・`*.unity`・`*.asmdef` があるプロジェクトで適用。
+`Assets/`・`*.unity`・`*.asmdef`があるプロジェクトで適用。
 
-## アーキテクチャ
+## 構成
 
-- 規模に応じMVP/MVC/Clean Architecture等を選ぶ。モック期は速度優先で過剰設計を避ける
-- 本実装期・共通モジュールはMonoBehaviour等を薄い層に閉じ、ロジックをUnity非依存・差替可能にする。マルチプレイ同期を阻害しない
-- DIコンテナは必要になってから導入する
-
-## AIが扱いやすい構成
-
+- 規模に応じMVP/MVC/Clean Architecture等を選び、モック期は過剰設計を避ける。本実装期・共通モジュールはMonoBehaviour等を薄い接着層にし、ロジックをUnity非依存・差替可能にする。DIコンテナは必要後に導入する
 - 1ファイル1クラス、目安200〜400行・500行超で分割検討。`partial`は原則使わない
-- ゲームロジックはPure C#、MonoBehaviourは接着剤とし、EditModeテスト可能にする
-- ファイル名＝クラス名。役割と場所が予測できる命名にする（`Mgr`等の省略語禁止）
-- フォルダはフィーチャー別を優先（例`Scripts/Enemy/`にModel・View・Data）
-- asmdefは`Core/Game/View/Editor/Tests`程度の機能単位で分割（依存違反をコンパイルエラーで検出）。過剰分割はしない
-- シーン・Prefabは配置だけに寄せ、配線・初期化・生成はコードで行う
-- デフォルト値はコードかScriptableObjectに置き、Inspectorでの値上書きを増やさない
-
-## 名前空間
-
-- `KawausoForge.プロジェクト名.フォルダ階層`
+- ゲームロジックはPure C#でEditModeテスト可能にする。ファイル名=クラス名、役割と場所が分かる命名（`Mgr`等の略語禁止）、フィーチャー別フォルダを優先する
+- asmdefは`Core/Game/View/Editor/Tests`程度に分け、循環を避ける。Scene/Prefabは配置中心、配線・初期化・生成はコード、既定値はコードかScriptableObjectに置く
+- 名前空間は`KawausoForge.プロジェクト名.フォルダ階層`
 
 ## 実装
 
-- Viewは表示、Modelは状態を担当し、MonoBehaviourへ複雑なロジックを書かない
-- 参照はAwake/Start/Init/Inspectorで確定する。Update内のGetComponent/Find系は禁止し、他でも原則避ける
-- Viewは直呼びよりAction等のイベント購読を優先。更新はModelの`Tick(float deltaTime)`へ集約しUpdateを最小化する
-- privateメンバーは`private`を明記する
-
-## ScriptableObject
-
-- マスターデータ・設定・バランス調整に使い、ランタイム状態・セーブには使わない
-
-## UI・共通コンポーネント
-
+- View=表示、Model=状態。参照はAwake/Start/Init/Inspectorで確定し、Update内のGetComponent/Findは禁止、他でも原則避ける
+- ViewはAction等のイベント購読を優先し、更新はModelの`Tick(float deltaTime)`へ集約してUpdateを最小化する。privateメンバーは`private`を明記する
+- ScriptableObjectはマスターデータ・設定・調整値に使い、ランタイム状態・セーブには使わない
 - テキスト=`KawausoText`、ボタン=`KawausoButton`（`KawausoForge.Extension`）、ログ=`KawausoDebug.Log`
-- `CommonComponents`がある場合: シーン移動は`SceneHandler`利用、各シーン最上位クラスは`AbstractSceneHandler`継承
+- `CommonComponents`があれば、Scene遷移は`SceneHandler`、各Scene最上位は`AbstractSceneHandler`を使う
 
 ## マルチプレイ
 
-- 状態・入力・イベント・結果を同期し、UI・Effect・Animator・Audioを中心にしない
-- 同期はSteam Lobby等Steam系で設計（Photonは使わない）。モック期はネットワーク実装を作り込みすぎない
+状態・入力・イベント・結果を同期し、UI/Effect/Animator/Audioを同期の中心にしない。Steam Lobby等Steam系で設計しPhotonは使わない。モック期は作り込みすぎず、将来の同期を阻害しない構造にする。

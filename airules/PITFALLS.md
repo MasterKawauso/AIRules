@@ -1,34 +1,17 @@
-# PITFALLS — AI失敗パターン集
+# PITFALLS — AI失敗パターン
 
-実装・修正・デバッグ時に適用する実例集。失敗時は一行追記する。
+実装・修正・デバッグ時に適用。再発性のある新規パターンは、同リポジトリが作業範囲なら正本へ一行追記する。
 
 ## 共通
 
-- 未確認のファイル・アセットを推測で直さず、確認方法を示す
-- 不要なリファクタをせず、指示外の改善は提案に留める
-- エラー1件のために全体構造を変えない
-- 同じ修正を2回失敗したら仮説を変えて調査に戻る
-- 未確認のAPI・設定名・メニュー名をでっち上げない
-- バージョン未確認のまま古い書き方・非推奨APIを使わない
-- メソッドには次の日本語概要を付ける。既存メソッド変更時も未記載なら追加する
-  ```csharp
-  /// <summary>
-  /// 概要
-  /// </summary>
-  ```
+- 未確認のファイル・アセット・API・設定名・メニュー名を推測で直したり捏造せず、確認方法を示す
+- 指示外の改善・リファクタは提案に留め、1エラーのために全体構造を変えない
+- 同じ修正が2回失敗したら仮説を変えて調査へ戻る
+- バージョン確認なしに古い記法・非推奨APIを使わない
+- 追加・変更したC#メソッドに日本語概要がなければ、既存規約どおり`/// <summary>概要</summary>`を付ける。未変更メソッドへ広げない
 
-## Unity
+## エンジン別
 
-- 未確認のPrefab/Scene/Asset（`.unity`/`.prefab`/`.asset` YAML）を推測編集せず、Inspector手順を示す
-- Physics/Input/Tags・Layers/Build Settings等のEditor設定が原因の可能性があれば、コード修正前に確認項目リストを出す
-- コード修正で直らない時はInspector上のシリアライズ済みの値（デフォルト値の上書き）を疑う
-- .metaファイル・GUIDを手で書き換えない
-
-## Unreal Engine
-
-- Blueprintはテキストから見えないため、C++だけで原因を断定しない（確認は`UE5.md`）
-- GameMode割り当て・Collision・Input等のEditor設定を確認せずコード修正から始めない
-
-## Godot
-
-- `.tscn`/`.tres`/`project.godot`を推測編集せず、エディタ手順を示す
+- Unity: 未確認の`.unity`/`.prefab`/`.asset` YAMLや`.meta`/GUIDを推測編集しない。Physics/Input/Tags・Layers/Build SettingsやInspector値が原因になり得る場合はコード修正前に確認する
+- Unreal Engine: 不可視のBlueprintをC++だけで断定しない。GameMode/Collision/Input等のEditor設定を先に確認する（`UE5.md`）
+- Godot: `.tscn`/`.tres`/`project.godot`を推測編集せず、必要ならエディタ手順を示す
