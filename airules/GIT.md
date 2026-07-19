@@ -4,36 +4,31 @@ Git操作（commit/branch/push等）時に適用。
 
 ## 通常ルール
 
-- 1コミット1機能。大規模リファクタと機能追加を混ぜない。指示外ファイルは含めない
-- コミット前: コンパイルエラー・不要変更/デバッグコード・意図しないTODO/コメント変更がないか確認
-- 現在のブランチを確認してから作業。main/masterへは直接commit・その他の変更操作をしない（ユーザー指示時のみ可）
-- push前に差分を確認。テスト失敗・コンフリクト発生時はpush・PR作成を停止して報告
-- 破壊的操作（rebase / reset --hard / git clean / revert / force push / branch・tag削除 / 履歴書き換え）はユーザー許可なしに実行しない。提案のみ（PRレビューモード中の作業ブランチへのmain取り込みは除く）
+- 1コミット1機能。機能追加と大規模リファクタを混ぜず、指示外ファイルを含めない
+- 作業前にブランチを確認する。main/masterへのcommit・変更はユーザー指示時だけ
+- commit前にコンパイルエラー、不要変更、デバッグコード、意図しないTODO・コメント変更を確認する
+- push前に差分を確認する。テスト失敗・競合時はpush/PR作成を停止し報告する
+- rebase/reset --hard/git clean/revert/force push/branch・tag削除/履歴書換えは許可なく行わず提案だけする。ただしPRレビューモードで作業ブランチへmainを取り込む場合を除く
 - 実行前に内容と影響範囲を簡潔に説明する
 - ユーザーから根本的に別問題の修正が指示された場合、未マージの作業があっても別のブランチを作成する
 
 ## 並行Agent用Gitルール
 
-複数Agentが同時作業する場合、同一作業ディレクトリでのブランチ切替は禁止する。
-
-並行作業では、Agentごとに `git worktree` で独立した作業ディレクトリを作成し、各Agentは自分のworktree内のみで作業する。
+同時作業時はAgentごとに`git worktree`とbranchを分け、同じ作業ディレクトリでbranchを切り替えない。
 
 - 1 Agent = 1 worktree = 1 branch
-- 他Agentのworktree・branchへ移動/変更しない
-- 親リポジトリで勝手にcheckoutしない
-- 作業完了後、Integratorが成果物を統合する
-- worktree作成・削除で失敗した場合は停止して報告する
+- 他Agentのworktree/branchや親リポジトリを変更・checkoutしない
+- Integratorが成果物を統合する。worktree作成・削除失敗時は停止・報告する
 - 原則としてmainブランチを握らない
 
 ## Git操作に失敗したら
 
-commit・push・PR作成等に失敗したら、原因調査の前にまずユーザーへ確認する: 「init-ai-git.ps1 を実行済みですか？」
-未実行なら実行を依頼し、完了後に再試行。init-ai-git.ps1はユーザー管理のスクリプトであり、AIが作成・探索・自動実行しない。
+commit/push/PR作成失敗時は原因調査前に「`init-ai-git.ps1`を実行済みですか？」と確認する。未実行なら依頼後に再試行する。ユーザー管理スクリプトのためAIは作成・探索・自動実行しない。
 
 ## PRレビューモード
 
-「PRレビューモード」「PRレビューで」「PRフローで」の指示時のみ有効。通常作業のGit運用は変更しない。
+「PRレビューモード」「PRレビューで」「PRフローで」の指示時だけ有効。
 
-フロー: 最新main取得 → 作業用worktree作成 → 実装 → 必要に応じ最新main取り込み（merge or rebase） → テスト → commit → push → PR作成 → ユーザーへ通知
+最新main取得→作業worktree作成→実装→必要ならmain取込み（merge/rebase）→テスト→commit→push→PR作成→通知。
 
 PR作成・レビューとGitHub Issue管理はGITHUB.mdに従う
