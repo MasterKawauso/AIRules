@@ -37,6 +37,21 @@ function Invoke-ExternalCommandBestEffort {
     return $true
 }
 
+function Test-PluginInstalled {
+    param(
+        [Parameter(Mandatory)] [string]$Command,
+        [Parameter(Mandatory)] [string]$Plugin
+    )
+
+    $output = & $Command "plugin" "list" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "$Command の導入済みプラグイン一覧を取得できませんでした（exit code: $LASTEXITCODE）。"
+        return $false
+    }
+
+    return [bool]($output | Select-String -SimpleMatch "$Plugin@pm-skills")
+}
+
 function Install-CodexPmSkills {
     if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
         Write-Warning "Codex CLIが見つからないため、Codex向けPM Skills導入をスキップします。"
@@ -44,8 +59,14 @@ function Install-CodexPmSkills {
     }
 
     Write-Host "=== PM Skills: Codex CLI ==="
+    $missingPlugins = @($plugins | Where-Object { -not (Test-PluginInstalled "codex" $_) })
+    if ($missingPlugins.Count -eq 0) {
+        Write-Host "  PM Skillsはすべて導入済みです。"
+        return
+    }
+
     Invoke-ExternalCommandBestEffort "codex" @("plugin", "marketplace", "add", "phuryn/pm-skills") "Codex Marketplace登録" | Out-Null
-    foreach ($plugin in $plugins) {
+    foreach ($plugin in $missingPlugins) {
         Invoke-ExternalCommandBestEffort "codex" @("plugin", "add", "$plugin@pm-skills") "Codex plugin $plugin の導入" | Out-Null
     }
 }
@@ -57,8 +78,14 @@ function Install-ClaudePmSkills {
     }
 
     Write-Host "=== PM Skills: Claude Code ==="
+    $missingPlugins = @($plugins | Where-Object { -not (Test-PluginInstalled "claude" $_) })
+    if ($missingPlugins.Count -eq 0) {
+        Write-Host "  PM Skillsはすべて導入済みです。"
+        return
+    }
+
     Invoke-ExternalCommandBestEffort "claude" @("plugin", "marketplace", "add", "phuryn/pm-skills") "Claude Marketplace登録" | Out-Null
-    foreach ($plugin in $plugins) {
+    foreach ($plugin in $missingPlugins) {
         Invoke-ExternalCommandBestEffort "claude" @("plugin", "install", "$plugin@pm-skills") "Claude plugin $plugin の導入" | Out-Null
     }
 }

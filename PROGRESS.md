@@ -4,6 +4,7 @@
 
 ## 2026-07-21
 
+- `deploy.cmd` 経由のPM Skills導入で、Codex/Claudeそれぞれの導入済み一覧を確認し、9プラグインがすべて導入済みならMarketplace登録・導入をスキップするようにした
 - 実行ポリシーを変更せずダブルクリックで配備できる`deploy.cmd`を追加。PowerShell 7を優先し、未導入時はWindows PowerShellへフォールバックする
 - `phuryn/pm-skills`を公式Marketplace経由でCodex/Claudeへ導入する`install-pm-skills.ps1`を追加。`deploy.ps1`の通常実行から9プラグインを自動確認・導入するようにした
 - 企画検証・市場性・価格・販売戦略・プロダクト判断では、独自記事を追加せず導入済みPM Skillsを参照する導線を`AGENTS.md`へ追加

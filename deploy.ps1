@@ -106,8 +106,8 @@ foreach ($f in $oldSkills) {
     }
 }
 
-# 7. PM Skills（公式Marketplaceから毎回確認・導入）
-#    既に導入済みの場合も安全に再実行でき、CLI未導入や一時的な失敗は警告に留める。
+# 7. PM Skills（公式Marketplaceから確認し、未導入分だけ導入）
+#    CLI未導入や一覧取得・一時的な導入失敗は警告に留める。
 Write-Host ""
 & (Join-Path $repo "install-pm-skills.ps1") -Target Both
 
