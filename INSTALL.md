@@ -22,6 +22,27 @@ cd D:\AIRules\AIRules
 
 既存ファイルは`backup\<日時>\`へ保存し、旧`~/.claude/skills/`の4ファイルは初回に退避する。
 
+## PM Skills（deploy時に自動導入）
+
+企画検証、市場性、競合、価格、販売戦略、PRD等には`phuryn/pm-skills`を使う。68 skills / 42 workflowsを9プラグインに分けたMITライセンスの公式Marketplaceで、内容はAIRules内へ複製しない。
+
+CodexとClaude Codeへまとめて導入する。
+
+```powershell
+.\deploy.ps1
+```
+
+片方だけなら次を使う。
+
+```powershell
+.\install-pm-skills.ps1 -Target Codex
+.\install-pm-skills.ps1 -Target Claude
+```
+
+導入対象は`pm-toolkit`、`pm-product-strategy`、`pm-product-discovery`、`pm-market-research`、`pm-data-analytics`、`pm-marketing-growth`、`pm-go-to-market`、`pm-execution`、`pm-ai-shipping`。Codexではskillsを名前または自然文で利用する。Claude固有のslash commandはCodexではslash commandとして実行されない。
+
+更新時も同じスクリプトを再実行する。Marketplace CLIの仕様変更で失敗した場合は、原典READMEの最新手順を確認する。
+
 ## 初回移行（手動）
 
 Codexはglobal→projectの`AGENTS.md`を後勝ち・合計32KiBで連結する。`deploy.ps1`は旧projectルールを検出しないため、各projectの旧`AGENTS.md`/`CodexSkills/`を確認する。

@@ -1,7 +1,10 @@
-﻿# AIRules 配備スクリプト
+# AIRules 配備スクリプト
 # 正本はこのリポジトリ。配備先 (~/.codex, ~/.claude) を直接編集しないこと。
 # 使い方: リポジトリのファイルを編集したら .\deploy.ps1 を実行する。
 # 既存の配備先ファイルは backup\<日時>\ へ退避してから上書きする。
+
+[CmdletBinding()]
+param()
 
 $ErrorActionPreference = "Stop"
 
@@ -102,6 +105,11 @@ foreach ($f in $oldSkills) {
         Write-Host "  retired old skill: $p"
     }
 }
+
+# 7. PM Skills（公式Marketplaceから毎回確認・導入）
+#    既に導入済みの場合も安全に再実行でき、CLI未導入や一時的な失敗は警告に留める。
+Write-Host ""
+& (Join-Path $repo "install-pm-skills.ps1") -Target Both
 
 Write-Host ""
 if (Test-Path $backupRoot) {
