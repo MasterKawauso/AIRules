@@ -13,6 +13,8 @@ cd D:\AIRules\AIRules
 .\deploy.ps1
 ```
 
+`InstallMCPElse.cmd`をダブルクリックすると、PM SkillsとUnity公式の最新ベータ版Unity CLIを未導入時だけ導入する。配備処理は含まれない。PowerShellを新しく開いてから`unity --version`で確認する。
+
 | 配備元 | 配備先/用途 |
 |---|---|
 | `AGENTS.md` | 両環境の`AGENTS.md`（Codex自動読込、Claude import元） |
@@ -42,6 +44,17 @@ CodexとClaude Codeへまとめて導入する。
 導入対象は`pm-toolkit`、`pm-product-strategy`、`pm-product-discovery`、`pm-market-research`、`pm-data-analytics`、`pm-marketing-growth`、`pm-go-to-market`、`pm-execution`、`pm-ai-shipping`。Codexではskillsを名前または自然文で利用する。Claude固有のslash commandはCodexではslash commandとして実行されない。
 
 更新時も同じスクリプトを再実行する。Marketplace CLIの仕様変更で失敗した場合は、原典READMEの最新手順を確認する。
+
+## Unity CLI（InstallMCPElse.cmdで自動導入）
+
+`InstallMCPElse.cmd`は、Unity公式の実験的CLIをbetaチャネルから未導入時のみ追加する。CLI単体はEditor/Module管理用で、起動中のEditorからGameObjectなどの最新状態を取得するには、対象Unityプロジェクトで次を一度実行する。
+
+```powershell
+cd <Unityプロジェクトのルート>
+unity pipeline install
+```
+
+`com.unity.pipeline`はUnity 6.0 LTS以降で動作する実験的パッケージである。Editorを開いた状態で`unity command eval`などを使うため、対象プロジェクトを指定せずにdeployから自動追加はしない。CLIの更新は`unity upgrade`を使う。
 
 ## 初回移行（手動）
 

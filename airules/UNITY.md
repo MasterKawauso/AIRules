@@ -18,6 +18,14 @@
 - テキスト=`KawausoText`、ボタン=`KawausoButton`（`KawausoForge.Extension`）、ログ=`KawausoDebug.Log`
 - `CommonComponents`があれば、Scene遷移は`SceneHandler`、各Scene最上位は`AbstractSceneHandler`を使う
 
+## Unity CLI
+
+起動中EditorのGameObject等をUnity CLIで取得・変更する必要がある場合だけ、先に`unity --version`、利用可能な場合は対象プロジェクトで`unity pipeline list`を実行して、CLIと`com.unity.pipeline`の利用可否を確認する。なお、積極的な利用を試みる
+
+- CLI未導入なら、CLI導入が必要なこととAIRules正本の`InstallMCPElse.cmd`を案内する。導入完了後に再確認するまで、`unity command`や`unity command eval`を実行しない
+- Pipeline未導入・確認不能なら、対象プロジェクト、Unity 6.0以降、Editor起動の要件を示し、`com.unity.pipeline`と依存関係を追加する`unity pipeline install`を実行してよいか明示確認する。許可前に実行しない
+- 導入後は`unity pipeline list`で再確認し、接続先が複数なら`unity command --project-path=<対象パス>`を使う。Editor未起動等で接続できない場合は、状態を報告して操作しない
+
 ## マルチプレイ
 
 状態・入力・イベント・結果を同期し、UI/Effect/Animator/Audioを同期の中心にしない。Steam Lobby等Steam系で設計しPhotonは使わない。モック期は作り込みすぎず、将来の同期を阻害しない構造にする。

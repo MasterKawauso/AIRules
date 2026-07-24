@@ -2,8 +2,12 @@
 
 現在フェーズ: 本実装（ルール管理リポジトリのため参考値）
 
-## 2026-07-21
+## 2026-07-24
 
+- 配備処理を含む`deploy.cmd`を廃止し、PM SkillsとUnity公式beta版Unity CLIだけを未導入時に導入する`InstallMCPElse.cmd`へ置換。対象Unityプロジェクトへの`com.unity.pipeline`追加手順を`INSTALL.md`へ記載
+- `UNITY.md`へ、CLI/Pipeline利用可否を先に検査し、未導入の`com.unity.pipeline`追加は明示許可後だけ`unity pipeline install`を実行するフローを追加
+
+## 2026-07-21
 - `deploy.cmd` 経由のPM Skills導入で、Codex/Claudeそれぞれの導入済み一覧を確認し、9プラグインがすべて導入済みならMarketplace登録・導入をスキップするようにした
 - 実行ポリシーを変更せずダブルクリックで配備できる`deploy.cmd`を追加。PowerShell 7を優先し、未導入時はWindows PowerShellへフォールバックする
 - `phuryn/pm-skills`を公式Marketplace経由でCodex/Claudeへ導入する`install-pm-skills.ps1`を追加。`deploy.ps1`の通常実行から9プラグインを自動確認・導入するようにした
