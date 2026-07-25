@@ -2,18 +2,16 @@
 setlocal
 
 where pwsh >nul 2>&1
-if %errorlevel% equ 0 (
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-pm-skills.ps1" -Target Both
-    if errorlevel 1 goto :finish
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-unity-cli.ps1"
-) else (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-pm-skills.ps1" -Target Both
-    if errorlevel 1 goto :finish
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-unity-cli.ps1"
+if errorlevel 1 (
+    echo PowerShell 7 (pwsh) が見つかりません。PowerShell 7 を導入してから再実行してください。
+    set "deployExitCode=1"
+    goto :finish
 )
 
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0installMCPElse.ps1"
+
 :finish
-set "deployExitCode=%errorlevel%"
+if not defined deployExitCode set "deployExitCode=%errorlevel%"
 echo.
 if not "%deployExitCode%"=="0" echo Install failed with exit code %deployExitCode%.
 pause

@@ -4,6 +4,14 @@
 
 ## 2026-07-25
 
+- ルール本文の正本を`Codex/`へ集約し、`AGENTS.md`と`airules/*.md` 12本を本文無改変のまま移動。Claude側は本文を複製せず`deploy.ps1`が変換生成する単一ソース構成にした
+- Claudeの条件別ルールを`~/.claude/skills/airules-*/SKILL.md`へSkill化し、`~/.claude/airules/`を廃止。descriptionによる自動発火に任せ、CLAUDE.mdへの強制読込指示は入れない方針を採用
+- skill名はファイル名から自動生成、descriptionは`Claude/skills/manifest.json`優先・未登録時は本文冒頭から自動導出。新規md追加は`Codex/airules/`へ置くだけで配備が通る。自動導出は適用条件の見出し文でトリガが弱いため、運用中の12本は手書きdescriptionを正とした
+- 配備物の本文中のルール相互参照をSkill参照へ機械変換。バッククォート囲みの完全一致トークンだけを対象とし、同一文書で3箇所以上変換した場合は巻き込みの可能性として警告する
+- Claude用`AGENTS.md`の表変換は期待出現数を検査し、不一致なら無変更で失敗させる。変換後に未変換の`.md`参照が表へ残っていた場合も、変換定義の更新漏れとして失敗させる
+- Skillの管理境界を、上書きは`AIRULES-MANAGED`マーカー、削除（孤児退避）はマーカー＋配備記録の二条件と非対称にした。両方要求すると記録確定前の中断で以後の配備が拒否され続けるため。マーカーはfrontmatter直後の行にあり書式が一致するものだけを有効とし、マーカーの無いSkillと名前衝突した場合は配備全体を停止する。PM Skills・ユーザー独自Skillには触れない
+- `Cursor/core.mdc`を廃止。`~/.claude/hooks/`の2ファイルを`Claude/hooks/`へ取り込み配備管理下にした
+- `install-pm-skills.ps1`と`install-unity-cli.ps1`を`installMCPElse.ps1`へ統合し、BlenderMCP導入を追加。CLI経由登録・既存差異時の停止・`%LOCALAPPDATA%`へのバックアップとし、`InstallMCPElse.cmd`はpwsh前提の薄いランチャーにした
 - `WORKFLOW.md`の担当AI・モデル・思考深度確認を客観条件と着手前の停止ゲートに変更。複数責務、エンジン設定、Public API等を含む場合は回答を待ち、既定担当を確認省略の根拠にできないことを明記
 
 ## 2026-07-24

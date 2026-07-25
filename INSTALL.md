@@ -13,16 +13,31 @@ cd D:\AIRules\AIRules
 .\deploy.ps1
 ```
 
-`InstallMCPElse.cmd`をダブルクリックすると、PM SkillsとUnity公式の最新ベータ版Unity CLIを未導入時だけ導入する。配備処理は含まれない。PowerShellを新しく開いてから`unity --version`で確認する。
+`InstallMCPElse.cmd`をダブルクリックすると、PM Skills・Unity公式ベータ版Unity CLI・BlenderMCPを未導入時だけ導入する。配備処理は含まれない。PowerShellを新しく開いてから`unity --version`で確認する。
 
 | 配備元 | 配備先/用途 |
 |---|---|
-| `AGENTS.md` | 両環境の`AGENTS.md`（Codex自動読込、Claude import元） |
-| `airules/*.md` | 両環境の`airules/` |
+| `Codex/AGENTS.md` | `~/.codex/AGENTS.md`（Codex自動読込） |
+| `Codex/AGENTS.md` | `~/.claude/AGENTS.md`（参照先をSkill名へ変換して生成） |
+| `Codex/airules/*.md` | `~/.codex/airules/` |
+| `Codex/airules/*.md` | `~/.claude/skills/airules-*/SKILL.md`（frontmatter付きへ変換） |
 | `Claude/CLAUDE.md` | `~/.claude/CLAUDE.md` |
 | `Claude/agents/*.md` | `~/.claude/agents/` |
+| `Claude/output-styles/*.md` | `~/.claude/output-styles/` |
+| `Claude/hooks/*.ps1` | `~/.claude/hooks/` |
 
-既存ファイルは`backup\<日時>\`へ保存し、旧`~/.claude/skills/`の4ファイルは初回に退避する。
+既存ファイルは`backup\<日時>\`へ保存する。旧`~/.claude/airules/`はSkill生成と検証が全て成功したあとにbackupへ退避してから削除する。検証に失敗した場合は旧`airules/`を残し、配備を完了扱いにしない。
+
+`~/.claude/settings.json`はユーザー管理領域のため変更しない。hookを有効にするには同ファイルの`hooks`設定を各自で確認する。
+
+## Claude Skillの管理範囲
+
+`deploy.ps1`は、`SKILL.md`の`AIRULES-MANAGED`マーカーと`~/.claude/airules-deployment-manifest.json`（前回の配備記録）で管理範囲を判定する。上書きと削除で条件が異なる。
+
+- **上書き**はマーカーがあれば行う。マーカーはAIRulesが生成した証拠であり、配備記録は前回が完走したかしか示さないため。両方を要求すると、Skill配置後・記録確定前に中断した場合に以後の配備が拒否され続ける。記録が無くマーカーだけある場合は警告を出して採用する
+- **削除**（孤児退避）はマーカーと配備記録の両方が揃う場合だけ行う。削除は復元しにくいため上書きより厳しくする
+- 配備先のskill名にマーカーの無いSkillが既存していた場合、上書きも退避もせず配備全体を停止する
+- PM Skills 9プラグイン、ユーザー独自Skill、プラグイン管理領域には触れない
 
 ## PM Skills（任意）
 
@@ -31,14 +46,14 @@ cd D:\AIRules\AIRules
 CodexとClaude Codeへまとめて導入する。
 
 ```powershell
-.\install-pm-skills.ps1
+.\installMCPElse.ps1 -Component PmSkills
 ```
 
 片方だけなら次を使う。
 
 ```powershell
-.\install-pm-skills.ps1 -Target Codex
-.\install-pm-skills.ps1 -Target Claude
+.\installMCPElse.ps1 -Component PmSkills -Target Codex
+.\installMCPElse.ps1 -Component PmSkills -Target Claude
 ```
 
 導入対象は`pm-toolkit`、`pm-product-strategy`、`pm-product-discovery`、`pm-market-research`、`pm-data-analytics`、`pm-marketing-growth`、`pm-go-to-market`、`pm-execution`、`pm-ai-shipping`。Codexではskillsを名前または自然文で利用する。Claude固有のslash commandはCodexではslash commandとして実行されない。
@@ -55,6 +70,18 @@ unity pipeline install
 ```
 
 `com.unity.pipeline`はUnity 6.0 LTS以降で動作する実験的パッケージである。Editorを開いた状態で`unity command eval`などを使うため、対象プロジェクトを指定せずにdeployから自動追加はしない。CLIの更新は`unity upgrade`を使う。
+
+## BlenderMCP（InstallMCPElse.cmdで自動導入）
+
+`ahujasid/blender-mcp`をCodexとClaude Codeへ登録する。設定ファイルを直接編集せず、各CLIの`mcp add`で登録する。Claudeは既定scopeがlocalのため`--scope user`を付ける。
+
+```powershell
+.\installMCPElse.ps1 -Component BlenderMcp
+```
+
+既に`blender`という名前のMCPが登録済みで内容が異なる場合は、上書きも削除もせず差分を表示して停止する。置換する場合だけ`-ReplaceExistingMcp`を付ける。変更前に`~/.codex/config.toml`と`~/.claude.json`を`%LOCALAPPDATA%\AIRules\backup\<日時>`へ保存する（機密が混じりうるためGit管理下には置かない）。
+
+Blender側のAdd-on有効化と「Connect」はGUI操作のため自動化せず、手順表示だけを行う。BlenderMCPは任意コード実行機能とテレメトリ設定を持つため、用途を理解した上で使う。
 
 ## 初回移行（手動）
 
@@ -87,4 +114,4 @@ hooks = true
 
 ## 確認
 
-Unity projectでCodex/Claudeへ読了ルールとフェーズを尋ね、`UNITY.md`等が挙がること、Claude `/agents`にReviewerがあることを確認する。
+Unity projectでCodexへ読了ルールとフェーズを尋ね、`UNITY.md`等が挙がることを確認する。Claudeでは`/airules-unity`等のSkillが読み込まれること、`/agents`にReviewerがあることを確認する。Skillの一覧と有効状態は`/skills`で確認できる。

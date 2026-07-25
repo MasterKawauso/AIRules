@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "_comment": "descriptionOverrides はdescriptionの上書き。ここに無い Codex/airules/*.md も deploy.ps1 が skill名をファイル名から自動生成し、description を本文冒頭の通常段落から自動導出するため配備は通る（警告のみ）。ただし自動導出は『適用条件の見出し文』であってトリガ文ではなく自動発火が弱いため、運用する12本は手書きを正とする。新規md追加時はまず自動導出で動かし、発火が弱ければここへ追記する。",
+  "_descriptionGuideline": "先頭に『いつ使うか』を書き、モデルが判断に使うトリガ語（操作名・ファイル拡張子・コマンド名・ユーザーの言い回し）を明示列挙する。何が書いてあるかの要約は後半に短く添える。",
+  "descriptionOverrides": [
+    {
+      "source": "Codex/airules/REQUIREMENTS.md",
+      "skillName": "airules-requirements",
+      "description": "新規機能の追加、仕様変更、要件定義、複数画面・複数状態にまたがる実装を検討するときに使用する。未定義の要件、異常系、権限差、状態遷移、対象範囲、完了条件を洗い出す。軽微な不具合修正や文言修正、明確な単一変更では使用しない。"
+    },
+    {
+      "source": "Codex/airules/THINKING.md",
+      "skillName": "airules-thinking",
+      "description": "実装、修正、デバッグ、設計を開始するときに使用する。バグ調査、原因特定、リファクタ方針の検討、影響範囲の確認を含む。完了条件、影響経路、参照元、検証方法、既存責務の判断手順を適用する。"
+    },
+    {
+      "source": "Codex/airules/PITFALLS.md",
+      "skillName": "airules-pitfalls",
+      "description": "コードを実装、修正、デバッグするときに使用する。未確認のAPIや設定の推測、指示範囲外の変更、原因不明のままの修正、エンジン固有の危険な編集を防ぐための禁止例と回避策を適用する。"
+    },
+    {
+      "source": "Codex/airules/DESIGN.md",
+      "skillName": "airules-design",
+      "description": "設計、実装計画、アーキテクチャ検討、責務分割、依存方向、Public APIやデータ構造の決定を行うときに使用する。設計観点、再利用可否、抽象化の重さ、トレードオフの判断基準を適用する。"
+    },
+    {
+      "source": "Codex/airules/WORKFLOW.md",
+      "skillName": "airules-workflow",
+      "description": "設計を伴う実装、複数責務にまたがる変更、タスク分割、Sub Agentへの委譲、並列作業、統合、長期作業の引継ぎを行うときに使用する。担当AI・モデルの確認から分割、成果物レビュー、統合レビューまでの流れを適用する。軽微な単発修正では使用しない。"
+    },
+    {
+      "source": "Codex/airules/GAME_COMMON.md",
+      "skillName": "airules-game-common",
+      "description": "Unity、Unreal Engine、Godotを問わずゲームの実装や修正を行うときに使用する。エンジン非依存の共通方針として、ゲーム固有コードと共通機能の境界、開発フェーズに応じた共通化の判断を適用する。"
+    },
+    {
+      "source": "Codex/airules/UNITY.md",
+      "skillName": "airules-unity",
+      "description": "Unityプロジェクトを設計、実装、修正、デバッグするときに使用する。Assets/、*.unity、*.asmdef、MonoBehaviour、ScriptableObject、Prefab、Inspector、Unity CLIが関わる作業が対象。構成方針、命名、シリアライズ、Editor操作の規則を適用する。"
+    },
+    {
+      "source": "Codex/airules/UE5.md",
+      "skillName": "airules-ue5",
+      "description": "Unreal Engineプロジェクトを設計、実装、修正、デバッグするときに使用する。*.uproject、C++、Blueprint、GameMode、Actor、Replicationが関わる作業が対象。UE5固有の構成とEditor設定の規則を適用する。"
+    },
+    {
+      "source": "Codex/airules/GODOT.md",
+      "skillName": "airules-godot",
+      "description": "Godotプロジェクトを設計、実装、修正、デバッグするときに使用する。project.godot、GDScript、C#、Scene、Node、Resourceが関わる作業が対象。Godotのバージョン差と構成の規則を適用する。"
+    },
+    {
+      "source": "Codex/airules/REVIEW.md",
+      "skillName": "airules-review",
+      "description": "コードレビュー、差分レビュー、実装結果の確認、セルフレビュー、完了報告を行う前に使用する。今回の変更範囲、仕様との整合、実害のある問題、検証結果、未検証事項を確認する。"
+    },
+    {
+      "source": "Codex/airules/GIT.md",
+      "skillName": "airules-git",
+      "description": "Gitの変更操作を行う前に使用する。git add、commit、branch、checkout、switch、merge、rebase、reset、restore、tag、pushなどの非読取操作と、その前の安全確認が対象。status、diff、logなど状態・履歴の読取だけでは使用しない。"
+    },
+    {
+      "source": "Codex/airules/GITHUB.md",
+      "skillName": "airules-github",
+      "description": "GitHubのPR作成、PRレビュー対応、Issueの作成・更新・整理、ghコマンドによる変更操作を行うときに使用する。PRとIssueの粒度、記載範囲、事前確認、重複防止の規則を適用する。"
+    }
+  ]
+}
