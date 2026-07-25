@@ -106,11 +106,6 @@ foreach ($f in $oldSkills) {
     }
 }
 
-# 7. PM Skills（公式Marketplaceから確認し、未導入分だけ導入）
-#    CLI未導入や一覧取得・一時的な導入失敗は警告に留める。
-Write-Host ""
-& (Join-Path $repo "install-pm-skills.ps1") -Target Both
-
 Write-Host ""
 if (Test-Path $backupRoot) {
     Write-Host "=== 完了。バックアップ: $backupRoot ==="

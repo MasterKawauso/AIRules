@@ -24,14 +24,14 @@ cd D:\AIRules\AIRules
 
 既存ファイルは`backup\<日時>\`へ保存し、旧`~/.claude/skills/`の4ファイルは初回に退避する。
 
-## PM Skills（deploy時に自動導入）
+## PM Skills（任意）
 
 企画検証、市場性、競合、価格、販売戦略、PRD等には`phuryn/pm-skills`を使う。68 skills / 42 workflowsを9プラグインに分けたMITライセンスの公式Marketplaceで、内容はAIRules内へ複製しない。
 
 CodexとClaude Codeへまとめて導入する。
 
 ```powershell
-.\deploy.ps1
+.\install-pm-skills.ps1
 ```
 
 片方だけなら次を使う。

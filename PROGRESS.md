@@ -4,6 +4,7 @@
 
 ## 2026-07-24
 
+- `deploy.ps1`からPM Skillsの確認・導入を外し、AIRulesの配備専用に変更
 - 配備処理を含む`deploy.cmd`を廃止し、PM SkillsとUnity公式beta版Unity CLIだけを未導入時に導入する`InstallMCPElse.cmd`へ置換。対象Unityプロジェクトへの`com.unity.pipeline`追加手順を`INSTALL.md`へ記載
 - `UNITY.md`へ、CLI/Pipeline利用可否を先に検査し、未導入の`com.unity.pipeline`追加は明示許可後だけ`unity pipeline install`を実行するフローを追加
 

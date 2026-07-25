@@ -14,7 +14,7 @@ Claude/CLAUDE.md          Claude Code入口
 Claude/agents/            要件・設計・コードReviewer
 Claude/output-styles/     出力Style
 Cursor/core.mdc           Cursor用（deploy未対応、手動配置）
-deploy.ps1                配備（PM Skillsも自動確認・導入）
+deploy.ps1                AIRulesの配備
 InstallMCPElse.cmd        PM Skills・Unity CLIの導入（配備なし）
 install-pm-skills.ps1     phuryn/pm-skills導入
 install-unity-cli.ps1     Unity公式CLI導入
