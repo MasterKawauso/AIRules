@@ -1,4 +1,5 @@
-﻿# PreToolUse gate for the Agent tool.
+﻿# AIRULES-MANAGED-HOOK schema=1 source=Claude/hooks/require_agent_model.ps1
+# PreToolUse gate for the Agent tool.
 # WORKFLOW.md requires the owner AI / model / thinking depth to be settled before
 # design, implementation or review work is delegated. A missing `model` makes the
 # subagent inherit the parent model (opus), which is how an unattended run can

@@ -2,14 +2,16 @@
 [CmdletBinding()]
 param(
     # Test-only override; normal invocation always deploys to the current user's home directory.
-    [string]$HomeDirectory = $HOME
+    [string]$HomeDirectory = $HOME,
+    # Test-only override keeps temporary-environment backups outside the repository.
+    [string]$BackupDirectory = (Join-Path $PSScriptRoot 'backup')
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repo = $PSScriptRoot
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
-$backupRoot = Join-Path $repo "backup\$stamp"
+$backupRoot = Join-Path $BackupDirectory $stamp
 $codexHome = Join-Path $HomeDirectory '.codex'
 $claudeHome = Join-Path $HomeDirectory '.claude'
 $manifestPath = Join-Path $claudeHome 'airules-deployment-manifest.json'
@@ -27,6 +29,29 @@ function Add-WarningMessage {
 function Get-Sha256 {
     param([string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+}
+
+function Assert-ManagedHookTarget {
+    param(
+        [string]$Source,
+        [string]$Live,
+        [string[]]$LegacyHashes = @()
+    )
+    $sourceReader = [IO.File]::OpenText($Source)
+    try { $sourceFirstLine = $sourceReader.ReadLine() } finally { $sourceReader.Dispose() }
+    if ($sourceFirstLine -cnotmatch '^# AIRULES-MANAGED-HOOK schema=1 source=(Codex|Claude)/hooks/[^/\\]+\.ps1$') {
+        throw "Managed hook source has no valid marker: $Source"
+    }
+    if (-not (Test-Path -LiteralPath $Live)) { return }
+    if (-not (Test-Path -LiteralPath $Live -PathType Leaf)) { throw "Hook target exists but is not a file: $Live" }
+
+    $liveReader = [IO.File]::OpenText($Live)
+    try { $liveFirstLine = $liveReader.ReadLine() } finally { $liveReader.Dispose() }
+    $marked = $liveFirstLine -cmatch '^# AIRULES-MANAGED-HOOK schema=1 source=(Codex|Claude)/hooks/[^/\\]+\.ps1$'
+    $legacy = $LegacyHashes -contains (Get-Sha256 $Live)
+    if (-not $marked -and -not $legacy) {
+        throw "Refusing to overwrite non-AIRules hook file: $Live"
+    }
 }
 
 function Ensure-Directory {
@@ -68,33 +93,57 @@ function ConvertTo-YamlString {
     return ($Value | ConvertTo-Json -Compress)
 }
 
-function Get-ManagedClaudeSettingsHooks {
-    param([string]$DefinitionPath, [string]$ClaudeHome)
+function Get-ManagedHookDefinitions {
+    param(
+        [string]$DefinitionPath,
+        [string]$HomeToken,
+        [string]$HomePath
+    )
     $definitions = Get-Content -Raw -LiteralPath $DefinitionPath | ConvertFrom-Json -AsHashtable
     $managed = [ordered]@{}
     foreach ($eventName in @('PreToolUse', 'UserPromptSubmit', 'Stop')) {
-        if (-not $definitions.Contains($eventName)) { throw "Claude settings hook definition is missing '$eventName': $DefinitionPath" }
-        $definition = $definitions[$eventName]
-        if ($definition -isnot [System.Collections.IDictionary] -or -not $definition.Contains('command')) { throw "Claude settings hook definition for '$eventName' is invalid: $DefinitionPath" }
-        $managed[$eventName] = [ordered]@{
-            command = ([string]$definition.command).Replace('<claudeHome>', $ClaudeHome)
+        if (-not $definitions.Contains($eventName)) { throw "Hook definition is missing '$eventName': $DefinitionPath" }
+        $managed[$eventName] = @()
+        foreach ($definition in @($definitions[$eventName])) {
+            if ($definition -isnot [System.Collections.IDictionary] -or -not $definition.Contains('command')) { throw "Hook definition for '$eventName' is invalid: $DefinitionPath" }
+            $entry = [ordered]@{
+                command = ([string]$definition.command).Replace($HomeToken, $HomePath)
+            }
+            if ([string]::IsNullOrWhiteSpace($entry.command)) { throw "Hook definition for '$eventName' has an empty command: $DefinitionPath" }
+            if ($definition.Contains('matcher')) { $entry.matcher = [string]$definition.matcher }
+            $managed[$eventName] += $entry
         }
-        if ($definition.Contains('matcher')) { $managed[$eventName].matcher = [string]$definition.matcher }
     }
-    if ($definitions.Keys.Count -ne $managed.Keys.Count) { throw "Claude settings hook definition contains unsupported entries: $DefinitionPath" }
+    if ($definitions.Keys.Count -ne $managed.Keys.Count) { throw "Hook definition contains unsupported entries: $DefinitionPath" }
     return $managed
 }
 
-function Merge-ManagedClaudeSettingsHooks {
-    param([hashtable]$Settings, [hashtable]$ManagedHooks)
-    if (-not $Settings.Contains('hooks')) {
-        $Settings.hooks = [ordered]@{}
+function Install-StagedFile {
+    param(
+        [Parameter(Mandatory)][string]$Stage,
+        [Parameter(Mandatory)][string]$Live,
+        [int]$Attempts = 10
+    )
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            if (Test-Path -LiteralPath $Live) { Remove-Item -LiteralPath $Live -Force }
+            Move-Item -LiteralPath $Stage -Destination $Live
+            return
+        } catch {
+            $lastError = $_
+            if ($attempt -lt $Attempts) { Start-Sleep -Milliseconds 100 }
+        }
     }
-    if ($Settings.hooks -isnot [System.Collections.IDictionary]) { throw 'Claude settings.json property hooks must be an object.' }
+    throw $lastError
+}
 
+function Merge-ManagedHooks {
+    param([hashtable]$Hooks, [hashtable]$ManagedHooks)
     foreach ($eventName in $ManagedHooks.Keys) {
-        $managed = $ManagedHooks[$eventName]
-        $existingEntries = if ($Settings.hooks.Contains($eventName)) { @($Settings.hooks[$eventName]) } else { @() }
+        $managedDefinitions = @($ManagedHooks[$eventName])
+        $managedCommands = @($managedDefinitions | ForEach-Object { $_.command })
+        $existingEntries = if ($Hooks.Contains($eventName)) { @($Hooks[$eventName]) } else { @() }
         $remainingEntries = [System.Collections.Generic.List[object]]::new()
         foreach ($entry in $existingEntries) {
             if ($entry -isnot [System.Collections.IDictionary] -or -not $entry.Contains('hooks')) {
@@ -103,7 +152,7 @@ function Merge-ManagedClaudeSettingsHooks {
             }
             $remainingCommands = [System.Collections.Generic.List[object]]::new()
             foreach ($hook in @($entry.hooks)) {
-                if ($hook -is [System.Collections.IDictionary] -and $hook.Contains('command') -and $hook.command -eq $managed.command) { continue }
+                if ($hook -is [System.Collections.IDictionary] -and $hook.Contains('command') -and $managedCommands -contains $hook.command) { continue }
                 $remainingCommands.Add($hook)
             }
             if ($remainingCommands.Count -gt 0) {
@@ -111,13 +160,15 @@ function Merge-ManagedClaudeSettingsHooks {
                 $remainingEntries.Add($entry)
             }
         }
-        $entry = [ordered]@{}
-        if ($managed.Contains('matcher')) { $entry.matcher = $managed.matcher }
-        $entry.hooks = @([ordered]@{ type = 'command'; command = $managed.command })
-        $remainingEntries.Add($entry)
-        $Settings.hooks[$eventName] = @($remainingEntries)
+        foreach ($managed in $managedDefinitions) {
+            $entry = [ordered]@{}
+            if ($managed.Contains('matcher')) { $entry.matcher = $managed.matcher }
+            $entry.hooks = @([ordered]@{ type = 'command'; command = $managed.command })
+            $remainingEntries.Add($entry)
+        }
+        $Hooks[$eventName] = @($remainingEntries)
     }
-    return $Settings
+    return $Hooks
 }
 
 # Claude配備物では ~/.claude/airules/ が存在しないため、本文中のルール相互参照
@@ -242,7 +293,25 @@ function Assert-ExpectedClaudeAgentsTransform {
 try {
     Write-Host "=== AIRules deploy ($stamp) ==="
     $sourceAgents = Join-Path $repo 'Codex\AGENTS.md'
-    $settingsHooks = Get-ManagedClaudeSettingsHooks (Join-Path $repo 'Claude\settings-hooks.json') $claudeHome
+    $claudeManagedHooks = Get-ManagedHookDefinitions (Join-Path $repo 'Claude\settings-hooks.json') '<claudeHome>' $claudeHome
+    $codexManagedHooks = Get-ManagedHookDefinitions (Join-Path $repo 'Codex\settings-hooks.json') '<codexHome>' $codexHome
+    $sharedHookSources = @(Get-ChildItem -LiteralPath (Join-Path $repo 'Codex\hooks') -Filter '*.ps1' -File)
+    $claudeHookSources = @(Get-ChildItem -LiteralPath (Join-Path $repo 'Claude\hooks') -Filter '*.ps1' -File)
+    $hookNameCollisions = @($sharedHookSources.Name | Where-Object { $claudeHookSources.Name -contains $_ })
+    if ($hookNameCollisions.Count -gt 0) { throw "Shared/Claude hook source name collision: $($hookNameCollisions -join ', ')" }
+    $legacyClaudeHookHashes = @{
+        'read_progress.ps1' = @('20AAB59BD5295D152BFE82A93138C384521B4A220CC34F6C2EBD7311C8FDC6DA')
+        'remind_progress.ps1' = @('C26B071DFB5165B6971636854332B4AE82D91B27023198773FCAEFDD54DABB10')
+        'require_agent_model.ps1' = @('F3434426A993BA70FFC6377E2C528971439D25DD893DF4D4AC6E67E6FA6EE1DE')
+    }
+    foreach ($source in $claudeHookSources) {
+        $legacy = if ($legacyClaudeHookHashes.ContainsKey($source.Name)) { $legacyClaudeHookHashes[$source.Name] } else { @() }
+        Assert-ManagedHookTarget $source.FullName (Join-Path $claudeHome "hooks\$($source.Name)") $legacy
+    }
+    foreach ($source in $sharedHookSources) {
+        Assert-ManagedHookTarget $source.FullName (Join-Path $claudeHome "hooks\$($source.Name)")
+        Assert-ManagedHookTarget $source.FullName (Join-Path $codexHome "hooks\$($source.Name)")
+    }
     $settingsPath = Join-Path $claudeHome 'settings.json'
     if (Test-Path -LiteralPath $settingsPath) {
         # 既存設定が壊れている場合は、ユーザー設定を失わないよう書き換えずに停止する。
@@ -250,7 +319,19 @@ try {
     } else {
         $claudeSettings = [ordered]@{}
     }
-    $claudeSettings = Merge-ManagedClaudeSettingsHooks $claudeSettings $settingsHooks
+    if (-not $claudeSettings.Contains('hooks')) { $claudeSettings.hooks = [ordered]@{} }
+    if ($claudeSettings.hooks -isnot [System.Collections.IDictionary]) { throw 'Claude settings.json property hooks must be an object.' }
+    $claudeSettings.hooks = Merge-ManagedHooks $claudeSettings.hooks $claudeManagedHooks
+
+    $codexHooksPath = Join-Path $codexHome 'hooks.json'
+    if (Test-Path -LiteralPath $codexHooksPath) {
+        $codexHookDocument = Get-Content -Raw -LiteralPath $codexHooksPath | ConvertFrom-Json -AsHashtable
+    } else {
+        $codexHookDocument = [ordered]@{}
+    }
+    if (-not $codexHookDocument.Contains('hooks')) { $codexHookDocument.hooks = [ordered]@{} }
+    if ($codexHookDocument.hooks -isnot [System.Collections.IDictionary]) { throw 'Codex hooks.json property hooks must be an object.' }
+    $codexHookDocument.hooks = Merge-ManagedHooks $codexHookDocument.hooks $codexManagedHooks
     $sourceRules = @(Get-ChildItem -LiteralPath (Join-Path $repo 'Codex\airules') -Filter '*.md' -File | Sort-Object Name)
     if ($sourceRules.Count -eq 0) { throw 'No Codex/airules/*.md source files were found.' }
     $overrides = (Get-Content -Raw (Join-Path $repo 'Claude\skills\manifest.json') | ConvertFrom-Json).descriptionOverrides
@@ -350,6 +431,13 @@ try {
     Ensure-Directory $codexStage; Ensure-Directory $claudeStage
     Write-HeaderWrappedCopy $sourceAgents (Join-Path $codexStage 'AGENTS.md')
     foreach ($skill in $skills) { Write-HeaderWrappedCopy $skill.Source.FullName (Join-Path $codexStage "airules\$($skill.Source.Name)") }
+    Get-ChildItem -LiteralPath (Join-Path $repo 'Codex\hooks') -File | ForEach-Object {
+        Ensure-Directory (Join-Path $codexStage 'hooks')
+        Ensure-Directory (Join-Path $claudeStage 'hooks')
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $codexStage "hooks\$($_.Name)") -Force
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $claudeStage "hooks\$($_.Name)") -Force
+    }
+    Write-Bytes (Join-Path $codexStage 'hooks.json') $utf8.GetBytes(($codexHookDocument | ConvertTo-Json -Depth 100))
     Write-Bytes (Join-Path $claudeStage 'AGENTS.md') $utf8.GetBytes($claudeAgents)
     Write-HeaderWrappedCopy (Join-Path $repo 'Claude\CLAUDE.md') (Join-Path $claudeStage 'CLAUDE.md')
     foreach ($folder in @('agents','output-styles','hooks')) {
@@ -361,6 +449,29 @@ try {
             }
         }
     }
+
+    # Use Codex's own config writer against a staged CODEX_HOME. This changes only
+    # features.hooks and validates the existing TOML before any live file is replaced.
+    $codexConfigPath = Join-Path $codexHome 'config.toml'
+    $codexConfigStageHome = Join-Path $codexStage 'config-home'
+    Ensure-Directory $codexConfigStageHome
+    if (Test-Path -LiteralPath $codexConfigPath) {
+        Copy-Item -LiteralPath $codexConfigPath -Destination (Join-Path $codexConfigStageHome 'config.toml') -Force
+    }
+    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+    if ($null -eq $codexCommand) { throw 'Codex CLI is required to validate config.toml and enable the stable hooks feature.' }
+    $previousCodexHome = $env:CODEX_HOME
+    try {
+        $env:CODEX_HOME = $codexConfigStageHome
+        & $codexCommand.Source features enable hooks | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Codex rejected staged config.toml while enabling hooks (exit $LASTEXITCODE)." }
+        & $codexCommand.Source features list | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Codex validation failed for staged config.toml (exit $LASTEXITCODE)." }
+    } finally {
+        $env:CODEX_HOME = $previousCodexHome
+    }
+    $stagedCodexConfig = Join-Path $codexConfigStageHome 'config.toml'
+    if (-not (Test-Path -LiteralPath $stagedCodexConfig -PathType Leaf)) { throw 'Codex did not produce staged config.toml.' }
     foreach ($skill in $skills) {
         $destination = Join-Path $claudeStage "skills\$($skill.Name)\SKILL.md"
         $frontmatter = "---`r`nname: $(ConvertTo-YamlString $skill.Name)`r`ndescription: $(ConvertTo-YamlString $skill.Description)`r`n---`r`n"
@@ -382,6 +493,17 @@ try {
         }
     }
 
+    # Hook bodies go first. Configuration that references them is switched only
+    # after every body and other artifact has been placed.
+    Get-ChildItem -LiteralPath (Join-Path $claudeStage 'hooks') -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $live = Join-Path $claudeHome "hooks\$($_.Name)"; Backup-Item $live "claude-hooks-$($_.Name)"; Ensure-Directory (Split-Path -Parent $live)
+        Install-StagedFile $_.FullName $live
+    }
+    Get-ChildItem -LiteralPath (Join-Path $codexStage 'hooks') -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $live = Join-Path $codexHome "hooks\$($_.Name)"; Backup-Item $live "codex-hooks-$($_.Name)"; Ensure-Directory (Split-Path -Parent $live)
+        Install-StagedFile $_.FullName $live
+    }
+
     # Backup first, then replace staged files/directories with same-volume moves.
     foreach ($pair in @(@{ Live = (Join-Path $codexHome 'AGENTS.md'); Stage = (Join-Path $codexStage 'AGENTS.md'); Label = 'codex-AGENTS.md' }, @{ Live = (Join-Path $claudeHome 'AGENTS.md'); Stage = (Join-Path $claudeStage 'AGENTS.md'); Label = 'claude-AGENTS.md' }, @{ Live = (Join-Path $claudeHome 'CLAUDE.md'); Stage = (Join-Path $claudeStage 'CLAUDE.md'); Label = 'claude-CLAUDE.md' })) {
         Backup-Item $pair.Live $pair.Label; if (Test-Path -LiteralPath $pair.Live) { Remove-Item -LiteralPath $pair.Live -Force }; Move-Item -LiteralPath $pair.Stage -Destination $pair.Live
@@ -394,7 +516,7 @@ try {
         $live = Join-Path $liveCodexRules $skill.Source.Name; Backup-Item $live "codex-airules-$($skill.Source.Name)"; Ensure-Directory $liveCodexRules
         if (Test-Path -LiteralPath $live) { Remove-Item -LiteralPath $live -Force }; Move-Item -LiteralPath (Join-Path $codexStage "airules\$($skill.Source.Name)") -Destination $live
     }
-    foreach ($folder in @('agents','output-styles','hooks')) {
+    foreach ($folder in @('agents','output-styles')) {
         Get-ChildItem -LiteralPath (Join-Path $claudeStage $folder) -File -ErrorAction SilentlyContinue | ForEach-Object {
             $live = Join-Path $claudeHome "$folder\$($_.Name)"; Backup-Item $live "claude-$folder-$($_.Name)"; Ensure-Directory (Split-Path -Parent $live)
             if (Test-Path -LiteralPath $live) { Remove-Item -LiteralPath $live -Force }; Move-Item -LiteralPath $_.FullName -Destination $live
@@ -405,8 +527,15 @@ try {
         if (Test-Path -LiteralPath $live) { Remove-Item -LiteralPath $live -Recurse -Force }; Move-Item -LiteralPath (Join-Path $claudeStage "skills\$($skill.Name)") -Destination $live
     }
     foreach ($orphan in $managedOrphans) { Backup-Item $orphan "claude-skill-orphan-$([IO.Path]::GetFileName($orphan))"; Remove-Item -LiteralPath $orphan -Recurse -Force }
+    # Configuration is the final switch: at this point every referenced hook body exists.
     Backup-Item $settingsPath 'claude-settings.json'
     [System.IO.File]::WriteAllText($settingsPath, ($claudeSettings | ConvertTo-Json -Depth 100), $utf8)
+    Backup-Item $codexHooksPath 'codex-hooks.json'
+    if (Test-Path -LiteralPath $codexHooksPath) { Remove-Item -LiteralPath $codexHooksPath -Force }
+    Move-Item -LiteralPath (Join-Path $codexStage 'hooks.json') -Destination $codexHooksPath
+    Backup-Item $codexConfigPath 'codex-config.toml'
+    if (Test-Path -LiteralPath $codexConfigPath) { Remove-Item -LiteralPath $codexConfigPath -Force }
+    Move-Item -LiteralPath $stagedCodexConfig -Destination $codexConfigPath
     $oldClaudeAirules = Join-Path $claudeHome 'airules'
     if (Test-Path -LiteralPath $oldClaudeAirules) {
         $expected = [IO.Path]::GetFullPath($oldClaudeAirules).TrimEnd('\','/')
@@ -423,7 +552,7 @@ try {
     Backup-Item $manifestPath 'claude-airules-deployment-manifest.json'
     [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5), $utf8)
     Remove-Item -LiteralPath $codexStage,$claudeStage -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "SUCCESS: deployed $($skills.Count) Claude Skills and $($skills.Count) Codex rules; managed Claude settings hooks."
+    Write-Host "SUCCESS: deployed $($skills.Count) Claude Skills and $($skills.Count) Codex rules; managed Claude/Codex hooks."
     Write-Host "Backed up items: $backupCount"
     Write-Host "Backup directory: $(if (Test-Path -LiteralPath $backupRoot) { $backupRoot } else { '(none)' })"
     if ($warnings.Count) { Write-Host 'Warnings:'; $warnings | ForEach-Object { Write-Host "  - $_" } }

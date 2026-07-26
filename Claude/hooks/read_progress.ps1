@@ -1,3 +1,4 @@
+# AIRULES-MANAGED-HOOK schema=1 source=Claude/hooks/read_progress.ps1
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $f = Join-Path $PWD "PROGRESS.md"
 if (Test-Path $f) {

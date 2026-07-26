@@ -1,0 +1,18 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Bash|apply_patch|Edit|Write|Agent|mcp__.*",
+      "command": "pwsh -NoProfile -File \"<codexHome>\\hooks\\workflow_gate.ps1\""
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "command": "pwsh -NoProfile -File \"<codexHome>\\hooks\\workflow_gate.ps1\""
+    }
+  ],
+  "Stop": [
+    {
+      "command": "pwsh -NoProfile -File \"<codexHome>\\hooks\\workflow_gate.ps1\""
+    }
+  ]
+}

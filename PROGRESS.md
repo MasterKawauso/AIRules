@@ -4,6 +4,11 @@
 
 ## 2026-07-26
 
+- 担当AI・モデル・思考深度の確認が守られなかった根本原因を、常時読込の`AGENTS.md`から遅延発火Skillへ判定を委ね、親AIの着手を止める状態・Hookがなく、既存Hookもmodel未指定Sub Agentだけを対象にしていた構造と特定。`AGENTS.md`へ客観的な開始判定を置き、`WORKFLOW.md`で高リスク変更・設計判断・複数責務・委譲を独立条件化した
+- Claude/Codex共用の`workflow_gate.ps1`をUserPromptSubmit・PreToolUse・Stopへ登録。作業単位の選択状態を保持し、未選択の変更・委譲をPreToolUseで停止、推奨案を出さず終了する応答をStopで差し戻す。明示指定、同一会話の回答、`PLAN.md`/`SESSION.md`の構造化選択は再利用し、別作業の明示で失効、Explore等の読取専用は除外した。解析不能入力はfail open、要確認状態での変更系ツールはfail closed
+- `deploy.ps1`はClaude/Codex双方の既存Hookをマージ保持し、Codexのstable hooks機能をCLIで有効化する。管理マーカーまたは既知の旧版hashがない同名Hookは上書きせず、破損JSON・不正TOML・Hook配置失敗では設定切替前に停止する。正本は`Codex/`のままClaude用`AGENTS.md`と`airules-workflow` Skillを生成する
+- 一時HOMEで25ケースを検証し全件成功: 軽微修正、設計/複数責務/Public API、明示指定/同一会話/PLAN再利用、別作業失効、Sub Agent model有無、Explore、Stop、既存設定保持、二重配備、配置不能、同名衝突、破損JSON、想定外payload。別AIレビューで見つかった設計語だけの依頼・早すぎる短文承認・同名Hook上書き・設定先行切替の4点も修正し、実環境配備物の本文・hash・3イベント登録・Codex hooks有効化を確認した
+- 既知の限界: 自然文分類には誤検知/見逃しが残り、Hookを無効化・未信頼にした環境、Hook対象外の専用実行経路、ツール前の内部思考だけは機械停止できない。常時読込ゲートと構造化選択記録を代替線とし、Codexでは新規/変更Hookをセッション開始後に`/hooks`で信頼確認する必要がある
 - `deploy.ps1`が`Claude/settings-hooks.json`を正本として`~/.claude/settings.json`のPreToolUse（Agent）/UserPromptSubmit/Stopをマージ管理するようにした（Codex実装、Claudeレビュー）。hookファイルは配備されるのに登録だけ手動で、環境再構築時に防止線が黙って無効化される穴を閉じた
 - 設定の読取・マージはtry先頭で行い、書込みはSkill配備後まで遅延させる。破損JSONやマージ不能な形状は書込み前にthrowさせ、ユーザー設定を失わないため
 - AIRules管理hookの同一判定はcommand文字列で行い、既存エントリから同一commandだけを除去して再追加する。matcherは判定に使っていないため、同一commandを別matcherで登録している場合はmatcherがAIRules定義側へ寄せられる。現状該当なしだが、将来同じスクリプトを複数matcherで使うなら判定条件の見直しが必要

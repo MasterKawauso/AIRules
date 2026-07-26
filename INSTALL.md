@@ -20,6 +20,8 @@ cd D:\AIRules\AIRules
 | `Codex/AGENTS.md` | `~/.codex/AGENTS.md`（Codex自動読込） |
 | `Codex/AGENTS.md` | `~/.claude/AGENTS.md`（参照先をSkill名へ変換して生成） |
 | `Codex/airules/*.md` | `~/.codex/airules/` |
+| `Codex/hooks/*.ps1` | `~/.codex/hooks/`と`~/.claude/hooks/`（共通ゲート） |
+| `Codex/settings-hooks.json` | `~/.codex/hooks.json`へAIRules管理commandだけをマージ |
 | `Codex/airules/*.md` | `~/.claude/skills/airules-*/SKILL.md`（frontmatter付きへ変換） |
 | `Claude/CLAUDE.md` | `~/.claude/CLAUDE.md` |
 | `Claude/agents/*.md` | `~/.claude/agents/` |
@@ -28,7 +30,9 @@ cd D:\AIRules\AIRules
 
 既存ファイルは`backup\<日時>\`へ保存する。旧`~/.claude/airules/`はSkill生成と検証が全て成功したあとにbackupへ退避してから削除する。検証に失敗した場合は旧`airules/`を残し、配備を完了扱いにしない。
 
-`~/.claude/settings.json`はユーザー管理領域のため変更しない。hookを有効にするには同ファイルの`hooks`設定を各自で確認する。
+`~/.claude/settings.json`と`~/.codex/hooks.json`はユーザー管理項目を保持し、AIRules管理commandとmatcherだけをマージする。既存の他Hook、設定、Skillsは削除しない。壊れたJSONや`hooks`がobjectでない設定では、書込み前に配備を停止する。
+
+Codexは安定版hooks機能を使うため、`deploy.ps1`が既存`config.toml`を一時HOMEへ複製し、Codex CLI自身の`codex features enable hooks`と`codex features list`で読取検証後、`features.hooks=true`となった設定だけを配備する。Hook定義の新規・変更後はCodexのセキュリティ仕様により実行前の信頼確認が必要なので、次回起動時に`/hooks`で内容を確認して信頼する。Claude Codeは配備直後からマージ済みHookを使用する。
 
 ## Claude Skillの管理範囲
 
@@ -109,14 +113,15 @@ Get-ChildItem D:\ -Directory -Depth 1 | ForEach-Object {
 
 旧共通ルールは削除し、project固有`AGENTS.md`は共通部分だけ除いて残す。
 
-## Codex hook（任意・手動）
+## Workflow選択の記録
 
-`~/.codex/hooks.json`に`PROGRESS.md`用hookはあるが無効。必要なら`config.toml`を変更する。deployは変更せず、常時ルールが同内容を補う。
+同じ会話の回答は会話単位の一時状態として保持される。別セッションでも同じ作業単位の選択を引き継ぐ場合だけ、ユーザー承認後に`PLAN.md`または`SESSION.md`へ次の1行を置く。`scope`は現在作業を識別できる短い名前にする。
 
-```toml
-[features]
-hooks = true
+```text
+AIRULES_WORKFLOW_SELECTION: owner=Codex; model=gpt-5.6-sol; thinking=medium; scope=認証API移行
 ```
+
+3項目の欠落、未承認、別scopeの記録は無効。新しい会話でもscopeが一致する同一作業の実装・修正・検証・必要なレビューまで有効で、別作業には流用しない。機械ゲートに採用させるには、再開依頼に同じscope文字列を書くか、「`PLAN.md`の作業を再開」のように記録元を明示する。
 
 ## MCP（任意）
 

@@ -16,7 +16,9 @@ Claude/                   Claude固有物と変換定義
   skills/manifest.json    Skill化のdescription定義
   agents/                 要件・設計・コードReviewer
   output-styles/          出力Style
-  hooks/                  PROGRESS.md読込・更新促し
+  hooks/                  Claude固有Hook
+Codex/hooks/              両AIへ配備する共通workflow gate
+Codex/settings-hooks.json Codex Hook登録定義
 deploy.ps1                AIRulesの配備
 installMCPElse.ps1        PM Skills・Unity CLI・UnityMCP・BlenderMCPの導入
 InstallMCPElse.cmd        上記のダブルクリック用ランチャー
@@ -35,9 +37,11 @@ INSTALL.md / PROGRESS.md  Setup / 履歴
 
 AIは配備先を読む。リポジトリ移動・改名後は、生成ヘッダーの正本パス更新のため新しい場所で再配備する。
 
+`workflow_gate.ps1`は、複雑・高リスク作業を複合条件で分類し、担当AI・モデル・思考深度が未選択なら変更ツールと委譲を停止する。読取調査と軽微な単発修正は通し、同じ会話または承認済み`PLAN.md`/`SESSION.md`の選択を再利用する。
+
 ## Codexへの配備
 
-`Codex/AGENTS.md`と`Codex/airules/*.md`をそのまま`~/.codex/`へ配備する。Codexは`AGENTS.md`の条件付きルール表を見て、必要な`airules/`の文書だけを読む。
+`Codex/AGENTS.md`と`Codex/airules/*.md`をそのまま`~/.codex/`へ配備する。Codexは`AGENTS.md`の条件付きルール表を見て、必要な`airules/`の文書だけを読む。配備時は既存`~/.codex/hooks.json`を保持マージし、Codex CLI自身で`features.hooks=true`を安全に有効化する。変更されたユーザーHookはCodexの`/hooks`で信頼確認が必要になる。
 
 ## ClaudeへのSkill化配備
 
