@@ -1,0 +1,12 @@
+{
+  "PreToolUse": {
+    "matcher": "Agent",
+    "command": "pwsh -NoProfile -File \"<claudeHome>\\hooks\\require_agent_model.ps1\""
+  },
+  "UserPromptSubmit": {
+    "command": "powershell -File \"<claudeHome>\\hooks\\read_progress.ps1\""
+  },
+  "Stop": {
+    "command": "powershell -File \"<claudeHome>\\hooks\\remind_progress.ps1\""
+  }
+}

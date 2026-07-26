@@ -1,9 +1,9 @@
 # MCP・補助ツール導入スクリプト
-# PM Skills、Unity CLI、ahujasid/blender-mcp を必要に応じて導入する。
+# PM Skills、Unity CLI、CoplayDev/unity-mcp、ahujasid/blender-mcp を必要に応じて導入する。
 
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [ValidateSet("All", "PmSkills", "UnityCli", "BlenderMcp")]
+    [ValidateSet("All", "PmSkills", "UnityCli", "UnityMcp", "BlenderMcp")]
     [string]$Component = "All",
 
     [ValidateSet("Both", "Codex", "Claude")]
@@ -148,7 +148,8 @@ function Install-UnityCli {
 function Get-McpRegistration {
     param(
         [Parameter(Mandatory)] [string]$Command,
-        [Parameter(Mandatory)] [string[]]$Arguments
+        [Parameter(Mandatory)] [string[]]$Arguments,
+        [Parameter(Mandatory)] [string]$ServerName
     )
 
     $output = & $Command @Arguments 2>&1
@@ -163,30 +164,42 @@ function Get-McpRegistration {
         return [pscustomobject]@{ State = "Missing"; Output = $text }
     }
 
-    Write-Warning "$Command mcp get blender の結果を安全に判定できませんでした（exit code: $exitCode）。登録を変更しません。"
+    Write-Warning "$Command mcp get $ServerName の結果を安全に判定できませんでした（exit code: $exitCode）。登録を変更しません。"
     return [pscustomobject]@{ State = "Unknown"; Output = $text }
 }
 
-function Test-BlenderMcpConfiguration {
-    param([Parameter(Mandatory)] [string]$Output)
+function Test-McpConfiguration {
+    param(
+        [Parameter(Mandatory)] [string]$Output,
+        [Parameter(Mandatory)] [string]$ExpectedCommand,
+        # 期待するargsトークン列。表示形式差を吸収するため、順序を保った空白1個区切りで比較する。
+        [Parameter(Mandatory)] [string[]]$ExpectedArguments
+    )
 
+    $expectedArgumentLine = $ExpectedArguments -join " "
     $commandMatch = [regex]::Match($Output, "(?im)^\s*command\s*:\s*(.+?)\s*$")
     $argumentsMatch = [regex]::Match($Output, "(?im)^\s*args?\s*:\s*(.+?)\s*$")
     if ($commandMatch.Success -and $argumentsMatch.Success) {
-        return $commandMatch.Groups[1].Value.Trim() -eq "uvx" -and $argumentsMatch.Groups[1].Value.Trim() -eq "blender-mcp"
+        $actualCommand = $commandMatch.Groups[1].Value.Trim()
+        $actualArguments = ($argumentsMatch.Groups[1].Value.Trim() -split "\s+") -join " "
+        return $actualCommand -eq $ExpectedCommand -and $actualArguments -eq $expectedArgumentLine
     }
 
-    return $Output -match "(?im)^\s*uvx\s+blender-mcp\s*$"
+    $tokens = @($ExpectedCommand) + $ExpectedArguments
+    $pattern = "(?im)^\s*" + (($tokens | ForEach-Object { [regex]::Escape($_) }) -join "\s+") + "\s*$"
+    return $Output -match $pattern
 }
 
 function Show-McpDifference {
     param(
         [Parameter(Mandatory)] [string]$ClientName,
+        [Parameter(Mandatory)] [string]$ServerName,
+        [Parameter(Mandatory)] [string]$SourceName,
         [Parameter(Mandatory)] [string]$ExistingConfiguration,
         [Parameter(Mandatory)] [string]$DesiredCommand
     )
 
-    Write-Warning "$ClientName の blender は同名ですが、ahujasid/blender-mcp の設定と一致しません。"
+    Write-Warning "$ClientName の $ServerName は同名ですが、$SourceName の設定と一致しません。"
     Write-Host "  既存: $ExistingConfiguration"
     Write-Host "  希望: $DesiredCommand"
 }
@@ -215,49 +228,100 @@ function Backup-McpConfiguration {
     Write-Host "  MCP設定をバックアップしました: $script:mcpBackupPath"
 }
 
-function Install-BlenderMcpForClient {
+function Install-McpForClient {
     param(
         [Parameter(Mandatory)] [string]$ClientName,
+        [Parameter(Mandatory)] [string]$ServerName,
+        [Parameter(Mandatory)] [string]$SourceName,
         [Parameter(Mandatory)] [string]$Command,
         [Parameter(Mandatory)] [string[]]$GetArguments,
         [Parameter(Mandatory)] [string[]]$AddArguments,
         [Parameter(Mandatory)] [string[]]$RemoveArguments,
+        [Parameter(Mandatory)] [string]$ExpectedCommand,
+        [Parameter(Mandatory)] [string[]]$ExpectedArguments,
         [Parameter(Mandatory)] [string]$DesiredCommand
     )
 
-    $registration = Get-McpRegistration $Command $GetArguments
+    $registration = Get-McpRegistration $Command $GetArguments $ServerName
     if ($registration.State -eq "Unknown") {
         return
     }
 
     $replace = $false
     if ($registration.State -eq "Exists") {
-        if (Test-BlenderMcpConfiguration $registration.Output) {
-            Write-Host "  $ClientName の blender は ahujasid/blender-mcp として登録済みです。"
+        if (Test-McpConfiguration $registration.Output $ExpectedCommand $ExpectedArguments) {
+            Write-Host "  $ClientName の $ServerName は $SourceName として登録済みです。"
             return
         }
 
-        Show-McpDifference $ClientName $registration.Output $DesiredCommand
+        Show-McpDifference $ClientName $ServerName $SourceName $registration.Output $DesiredCommand
         if (-not $ReplaceExistingMcp) {
             # 既存登録を黙って残したまま成功扱いにすると、利用者は登録済みだと誤解する。
             # 上書きは破壊的なので自動では行わず、明示指定を促して停止する。
-            throw "$ClientName に別内容の blender MCP が登録済みです。上書きするには -ReplaceExistingMcp を明示指定してください。"
+            throw "$ClientName に別内容の $ServerName MCP が登録済みです。上書きするには -ReplaceExistingMcp を明示指定してください。"
         }
         $replace = $true
     }
 
-    $action = if ($replace) { "既存の blender MCP登録を置換" } else { "blender MCPを登録" }
+    $action = if ($replace) { "既存の $ServerName MCP登録を置換" } else { "$ServerName MCPを登録" }
     if (-not $PSCmdlet.ShouldProcess($ClientName, $action)) {
         return
     }
 
     Backup-McpConfiguration
     if ($replace) {
-        if (-not (Invoke-ExternalCommandBestEffort $Command $RemoveArguments "$ClientName blender MCP登録の削除")) {
+        if (-not (Invoke-ExternalCommandBestEffort $Command $RemoveArguments "$ClientName $ServerName MCP登録の削除")) {
             return
         }
     }
-    Invoke-ExternalCommandBestEffort $Command $AddArguments "$ClientName ahujasid/blender-mcp の登録" | Out-Null
+    Invoke-ExternalCommandBestEffort $Command $AddArguments "$ClientName $SourceName の登録" | Out-Null
+}
+
+function Install-UnityMcp {
+    Write-Host "=== UnityMCP: CoplayDev/unity-mcp ==="
+    $uvx = Get-Command uvx -ErrorAction SilentlyContinue
+    $codex = Get-Command codex -ErrorAction SilentlyContinue
+    $claude = Get-Command claude -ErrorAction SilentlyContinue
+
+    if (-not $uvx) {
+        # サーバ本体はPyPIのmcpforunityserverをuvxが実行時取得するため、uvxが無いと登録しても起動しない。
+        Write-Warning "uvx が見つからないため、UnityMCP導入をスキップします。"
+        return
+    }
+
+    $serverArguments = @("--from", "mcpforunityserver", "mcp-for-unity", "--transport", "stdio")
+    $common = @{
+        ServerName        = "unityMCP"
+        SourceName        = "CoplayDev/unity-mcp"
+        ExpectedCommand   = "uvx"
+        ExpectedArguments = $serverArguments
+    }
+
+    if (-not $codex) {
+        Write-Warning "Codex CLIが見つからないため、Codex向けUnityMCP登録をスキップします。"
+    } else {
+        Install-McpForClient @common `
+            -ClientName "Codex CLI" -Command "codex" `
+            -GetArguments @("mcp", "get", "unityMCP") `
+            -AddArguments (@("mcp", "add", "unityMCP", "--", "uvx") + $serverArguments) `
+            -RemoveArguments @("mcp", "remove", "unityMCP") `
+            -DesiredCommand "codex mcp add unityMCP -- uvx $($serverArguments -join ' ')"
+    }
+    if (-not $claude) {
+        Write-Warning "Claude Code CLIが見つからないため、Claude向けUnityMCP登録をスキップします。"
+    } else {
+        # Claudeは既定scopeがlocalのため --scope user を付ける。
+        Install-McpForClient @common `
+            -ClientName "Claude Code" -Command "claude" `
+            -GetArguments @("mcp", "get", "unityMCP") `
+            -AddArguments (@("mcp", "add", "--scope", "user", "--transport", "stdio", "unityMCP", "--", "uvx") + $serverArguments) `
+            -RemoveArguments @("mcp", "remove", "unityMCP") `
+            -DesiredCommand "claude mcp add --scope user --transport stdio unityMCP -- uvx $($serverArguments -join ' ')"
+    }
+
+    Write-Host ""
+    Write-Host "Unity側は対象projectのPackage Managerへ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity を追加し、Window → MCP for Unity で接続を確認してください。"
+    Write-Warning "MCP for UnityはEditorのAsset・Sceneを変更できます。対象projectをGit管理下に置いてから利用してください。"
 }
 
 function Install-BlenderMcp {
@@ -283,17 +347,33 @@ function Install-BlenderMcp {
         Write-Warning "uvx または Blender が見つからないため、BlenderMCP導入をスキップします。"
         return
     }
+    $common = @{
+        ServerName        = "blender"
+        SourceName        = "ahujasid/blender-mcp"
+        ExpectedCommand   = "uvx"
+        ExpectedArguments = @("blender-mcp")
+    }
+
     if (-not $codex) {
         Write-Warning "Codex CLIが見つからないため、Codex向けBlenderMCP登録をスキップします。"
     } else {
-        # codex mcp add blender -- uvx blender-mcp
-        Install-BlenderMcpForClient "Codex CLI" "codex" @("mcp", "get", "blender") @("mcp", "add", "blender", "--", "uvx", "blender-mcp") @("mcp", "remove", "blender") "codex mcp add blender -- uvx blender-mcp"
+        Install-McpForClient @common `
+            -ClientName "Codex CLI" -Command "codex" `
+            -GetArguments @("mcp", "get", "blender") `
+            -AddArguments @("mcp", "add", "blender", "--", "uvx", "blender-mcp") `
+            -RemoveArguments @("mcp", "remove", "blender") `
+            -DesiredCommand "codex mcp add blender -- uvx blender-mcp"
     }
     if (-not $claude) {
         Write-Warning "Claude Code CLIが見つからないため、Claude向けBlenderMCP登録をスキップします。"
     } else {
-        # claude mcp add --scope user --transport stdio blender -- uvx blender-mcp
-        Install-BlenderMcpForClient "Claude Code" "claude" @("mcp", "get", "blender") @("mcp", "add", "--scope", "user", "--transport", "stdio", "blender", "--", "uvx", "blender-mcp") @("mcp", "remove", "blender") "claude mcp add --scope user --transport stdio blender -- uvx blender-mcp"
+        # Claudeは既定scopeがlocalのため --scope user を付ける。
+        Install-McpForClient @common `
+            -ClientName "Claude Code" -Command "claude" `
+            -GetArguments @("mcp", "get", "blender") `
+            -AddArguments @("mcp", "add", "--scope", "user", "--transport", "stdio", "blender", "--", "uvx", "blender-mcp") `
+            -RemoveArguments @("mcp", "remove", "blender") `
+            -DesiredCommand "claude mcp add --scope user --transport stdio blender -- uvx blender-mcp"
     }
 
     Write-Host ""
@@ -304,10 +384,12 @@ function Install-BlenderMcp {
 switch ($Component) {
     "PmSkills" { Install-PmSkills }
     "UnityCli" { Install-UnityCli }
+    "UnityMcp" { Install-UnityMcp }
     "BlenderMcp" { Install-BlenderMcp }
     "All" {
         Install-PmSkills
         Install-UnityCli
+        Install-UnityMcp
         Install-BlenderMcp
     }
 }

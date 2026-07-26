@@ -1,9 +1,10 @@
 @echo off
 setlocal
 
+rem NOTE: escape ")" as "^)" inside if-blocks, or cmd ends the block early.
 where pwsh >nul 2>&1
 if errorlevel 1 (
-    echo PowerShell 7 (pwsh) が見つかりません。PowerShell 7 を導入してから再実行してください。
+    echo PowerShell 7 ^(pwsh^) が見つかりません。PowerShell 7 を導入してから再実行してください。
     set "deployExitCode=1"
     goto :finish
 )

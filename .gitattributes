@@ -1,0 +1,6 @@
+# cmd.exe はCRLFを要求する。LFで配布すると行が途中で切れ、別コマンドとして解釈される。
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# PowerShellはLFでも動くが、Windows専用リポジトリのため揃える。
+*.ps1 text eol=crlf

@@ -68,6 +68,58 @@ function ConvertTo-YamlString {
     return ($Value | ConvertTo-Json -Compress)
 }
 
+function Get-ManagedClaudeSettingsHooks {
+    param([string]$DefinitionPath, [string]$ClaudeHome)
+    $definitions = Get-Content -Raw -LiteralPath $DefinitionPath | ConvertFrom-Json -AsHashtable
+    $managed = [ordered]@{}
+    foreach ($eventName in @('PreToolUse', 'UserPromptSubmit', 'Stop')) {
+        if (-not $definitions.Contains($eventName)) { throw "Claude settings hook definition is missing '$eventName': $DefinitionPath" }
+        $definition = $definitions[$eventName]
+        if ($definition -isnot [System.Collections.IDictionary] -or -not $definition.Contains('command')) { throw "Claude settings hook definition for '$eventName' is invalid: $DefinitionPath" }
+        $managed[$eventName] = [ordered]@{
+            command = ([string]$definition.command).Replace('<claudeHome>', $ClaudeHome)
+        }
+        if ($definition.Contains('matcher')) { $managed[$eventName].matcher = [string]$definition.matcher }
+    }
+    if ($definitions.Keys.Count -ne $managed.Keys.Count) { throw "Claude settings hook definition contains unsupported entries: $DefinitionPath" }
+    return $managed
+}
+
+function Merge-ManagedClaudeSettingsHooks {
+    param([hashtable]$Settings, [hashtable]$ManagedHooks)
+    if (-not $Settings.Contains('hooks')) {
+        $Settings.hooks = [ordered]@{}
+    }
+    if ($Settings.hooks -isnot [System.Collections.IDictionary]) { throw 'Claude settings.json property hooks must be an object.' }
+
+    foreach ($eventName in $ManagedHooks.Keys) {
+        $managed = $ManagedHooks[$eventName]
+        $existingEntries = if ($Settings.hooks.Contains($eventName)) { @($Settings.hooks[$eventName]) } else { @() }
+        $remainingEntries = [System.Collections.Generic.List[object]]::new()
+        foreach ($entry in $existingEntries) {
+            if ($entry -isnot [System.Collections.IDictionary] -or -not $entry.Contains('hooks')) {
+                $remainingEntries.Add($entry)
+                continue
+            }
+            $remainingCommands = [System.Collections.Generic.List[object]]::new()
+            foreach ($hook in @($entry.hooks)) {
+                if ($hook -is [System.Collections.IDictionary] -and $hook.Contains('command') -and $hook.command -eq $managed.command) { continue }
+                $remainingCommands.Add($hook)
+            }
+            if ($remainingCommands.Count -gt 0) {
+                $entry.hooks = @($remainingCommands)
+                $remainingEntries.Add($entry)
+            }
+        }
+        $entry = [ordered]@{}
+        if ($managed.Contains('matcher')) { $entry.matcher = $managed.matcher }
+        $entry.hooks = @([ordered]@{ type = 'command'; command = $managed.command })
+        $remainingEntries.Add($entry)
+        $Settings.hooks[$eventName] = @($remainingEntries)
+    }
+    return $Settings
+}
+
 # Claude配備物では ~/.claude/airules/ が存在しないため、本文中のルール相互参照
 # (`REQUIREMENTS.md` など) を対応するSkill参照へ機械変換する。リポジトリ側の正本は
 # 無改変のまま。完全一致トークンのみを対象とし、正規表現の広域置換は行わない。
@@ -190,6 +242,15 @@ function Assert-ExpectedClaudeAgentsTransform {
 try {
     Write-Host "=== AIRules deploy ($stamp) ==="
     $sourceAgents = Join-Path $repo 'Codex\AGENTS.md'
+    $settingsHooks = Get-ManagedClaudeSettingsHooks (Join-Path $repo 'Claude\settings-hooks.json') $claudeHome
+    $settingsPath = Join-Path $claudeHome 'settings.json'
+    if (Test-Path -LiteralPath $settingsPath) {
+        # 既存設定が壊れている場合は、ユーザー設定を失わないよう書き換えずに停止する。
+        $claudeSettings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json -AsHashtable
+    } else {
+        $claudeSettings = [ordered]@{}
+    }
+    $claudeSettings = Merge-ManagedClaudeSettingsHooks $claudeSettings $settingsHooks
     $sourceRules = @(Get-ChildItem -LiteralPath (Join-Path $repo 'Codex\airules') -Filter '*.md' -File | Sort-Object Name)
     if ($sourceRules.Count -eq 0) { throw 'No Codex/airules/*.md source files were found.' }
     $overrides = (Get-Content -Raw (Join-Path $repo 'Claude\skills\manifest.json') | ConvertFrom-Json).descriptionOverrides
@@ -344,6 +405,8 @@ try {
         if (Test-Path -LiteralPath $live) { Remove-Item -LiteralPath $live -Recurse -Force }; Move-Item -LiteralPath (Join-Path $claudeStage "skills\$($skill.Name)") -Destination $live
     }
     foreach ($orphan in $managedOrphans) { Backup-Item $orphan "claude-skill-orphan-$([IO.Path]::GetFileName($orphan))"; Remove-Item -LiteralPath $orphan -Recurse -Force }
+    Backup-Item $settingsPath 'claude-settings.json'
+    [System.IO.File]::WriteAllText($settingsPath, ($claudeSettings | ConvertTo-Json -Depth 100), $utf8)
     $oldClaudeAirules = Join-Path $claudeHome 'airules'
     if (Test-Path -LiteralPath $oldClaudeAirules) {
         $expected = [IO.Path]::GetFullPath($oldClaudeAirules).TrimEnd('\','/')
@@ -360,13 +423,13 @@ try {
     Backup-Item $manifestPath 'claude-airules-deployment-manifest.json'
     [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5), $utf8)
     Remove-Item -LiteralPath $codexStage,$claudeStage -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "SUCCESS: deployed $($skills.Count) Claude Skills and $($skills.Count) Codex rules."
+    Write-Host "SUCCESS: deployed $($skills.Count) Claude Skills and $($skills.Count) Codex rules; managed Claude settings hooks."
     Write-Host "Backed up items: $backupCount"
     Write-Host "Backup directory: $(if (Test-Path -LiteralPath $backupRoot) { $backupRoot } else { '(none)' })"
     if ($warnings.Count) { Write-Host 'Warnings:'; $warnings | ForEach-Object { Write-Host "  - $_" } }
     exit 0
 } catch {
-    Write-Error "FAILURE: $($_.Exception.Message)"
+    Write-Error "FAILURE: $($_.Exception.Message)" -ErrorAction Continue
     Write-Host "Backed up items before failure: $backupCount"
     Write-Host "Backup directory: $(if (Test-Path -LiteralPath $backupRoot) { $backupRoot } else { '(none)' })"
     if ($warnings.Count) { Write-Host 'Warnings:'; $warnings | ForEach-Object { Write-Host "  - $_" } }

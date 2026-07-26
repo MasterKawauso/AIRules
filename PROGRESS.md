@@ -2,6 +2,25 @@
 
 現在フェーズ: 本実装（ルール管理リポジトリのため参考値）
 
+## 2026-07-26
+
+- `deploy.ps1`が`Claude/settings-hooks.json`を正本として`~/.claude/settings.json`のPreToolUse（Agent）/UserPromptSubmit/Stopをマージ管理するようにした（Codex実装、Claudeレビュー）。hookファイルは配備されるのに登録だけ手動で、環境再構築時に防止線が黙って無効化される穴を閉じた
+- 設定の読取・マージはtry先頭で行い、書込みはSkill配備後まで遅延させる。破損JSONやマージ不能な形状は書込み前にthrowさせ、ユーザー設定を失わないため
+- AIRules管理hookの同一判定はcommand文字列で行い、既存エントリから同一commandだけを除去して再追加する。matcherは判定に使っていないため、同一commandを別matcherで登録している場合はmatcherがAIRules定義側へ寄せられる。現状該当なしだが、将来同じスクリプトを複数matcherで使うなら判定条件の見直しが必要
+- `Write-Error`が`$ErrorActionPreference='Stop'`で自身を例外化し、失敗時に`exit 1`へ到達せず終了コード0を返していた既存不具合を`-ErrorAction Continue`で修正。呼び出し側が配備失敗を検知できない状態だった
+- 検証: native Windowsパスの一時`-HomeDirectory`で(a)新規作成 (b)無関係設定+ユーザー独自hookへのマージ (c)2回実行の冪等性 (d)破損JSONでexit 1・ファイル無変更、を確認。実環境配備後もキー欠落0件・hook以外の設定変更0件、Agentゲートの発火を再確認。Git Bash経由では`-HomeDirectory`のパスが書き換わり検証が偽陽性になるため、PowerShellから実行する必要がある
+- model未指定のSub Agent起動事故（`WORKFLOW.md`の確認ゲートを読まずに最高モデルで実行しトークン超過）の再発防止に、PreToolUse hook `Claude/hooks/require_agent_model.ps1`を追加。`Agent`ツールの`tool_input.model`が空なら`permissionDecision=deny`で停止する。過去ログ上のAgent起動14件はすべて`model`を渡しておらず、省略時は親モデル(opus)を継承するため事故が機械的に起きる構造だった
+- 読取専用・軽量な`Explore`/`statusline-setup`/`claude-code-guide`と、`model`明示済みの起動は通す。payload不正・空入力はfail openとし、通常作業を妨げない方針にした
+- 拒否理由に是正手順（ユーザー確認を待つ／`model`を明示して再実行／調査なら`Explore`）を含め、停止で終わらず次の行動が決まるようにした
+- `Claude/hooks/`が`deploy.ps1`の管理対象として定義済みだが実体が未取り込みだったため、既存の`read_progress.ps1`・`remind_progress.ps1`もリポジトリへ取り込み配備管理下にした
+- 検証: 単体5パターン（model無/有・Explore・他ツール・空入力）と実ハーネスでの拒否・許可の両方を確認。`deploy.ps1`実行で配備物一致を確認。`settings.json`への`PreToolUse`登録は手動追加（deploy管理外）
+- `installMCPElse.ps1`へ`CoplayDev/unity-mcp`（MCP for Unity）導入を追加。`-Component UnityMcp`を新設し、既定の`All`にも組み込んだ。Codex/Claudeへ`unityMCP`を`uvx --from mcpforunityserver mcp-for-unity --transport stdio`で登録し、uvx未導入時はサーバが起動できないためスキップする
+- BlenderMCP用の登録処理を汎用化して共用（`Install-BlenderMcpForClient`→`Install-McpForClient`、`Test-BlenderMcpConfiguration`→`Test-McpConfiguration`）。既存差異時の停止・`-ReplaceExistingMcp`・設定バックアップの方針は両MCPで共通のままとした
+- 設定一致判定は期待コマンドとargsトークン列を引数化し、args全体を空白1個区切りで比較する。部分一致だと`--from`のパッケージ名違いや`--transport`欠落を同一と誤判定するため。Unity側ウィンドウが書く絶対パス`uvx.exe`は差分として停止扱いになることを`INSTALL.md`に明記
+- Unity package追加とEditor接続確認はproject単位のGUI操作のため自動化せず手順表示のみ。`INSTALL.md`のMCP節を「未導入」から実態へ更新し、`README.md`の記載も合わせた
+- `InstallMCPElse.cmd`が常に「pwshが見つかりません」で終了していた原因は2つ。(1)改行がLFのみで`cmd.exe`が行を途中で切り、断片を別コマンドとして解釈していた (2)`if`ブロック内`echo`の`(pwsh)`が未エスケープでブロックを早期終了させていた。CRLF化と`^(`/`^)`エスケープで修正し、ダブルクリック起動が通ることを実行確認した
+- 同じ事故の再発防止に`.gitattributes`を追加し、`*.cmd`/`*.bat`/`*.ps1`を`eol=crlf`で固定した（未コミット）
+
 ## 2026-07-25
 
 - ルール本文の正本を`Codex/`へ集約し、`AGENTS.md`と`airules/*.md` 12本を本文無改変のまま移動。Claude側は本文を複製せず`deploy.ps1`が変換生成する単一ソース構成にした

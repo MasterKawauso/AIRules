@@ -18,7 +18,7 @@ Claude/                   Claude固有物と変換定義
   output-styles/          出力Style
   hooks/                  PROGRESS.md読込・更新促し
 deploy.ps1                AIRulesの配備
-installMCPElse.ps1        PM Skills・Unity CLI・BlenderMCPの導入
+installMCPElse.ps1        PM Skills・Unity CLI・UnityMCP・BlenderMCPの導入
 InstallMCPElse.cmd        上記のダブルクリック用ランチャー
 init-ai-git.ps1           AI用SSH設定（手動実行）
 INSTALL.md / PROGRESS.md  Setup / 履歴
@@ -30,7 +30,7 @@ INSTALL.md / PROGRESS.md  Setup / 履歴
 
 1. このリポジトリを編集する（配備先`~/.codex`・`~/.claude`は直接編集しない）
 2. `./deploy.ps1`でAIRulesを配備する
-3. 必要に応じて`InstallMCPElse.cmd`を実行し、PM Skills・Unity CLI・BlenderMCPを導入する
+3. 必要に応じて`InstallMCPElse.cmd`を実行し、PM Skills・Unity CLI・UnityMCP・BlenderMCPを導入する
 4. 詳細とMCPは[INSTALL.md](INSTALL.md)を参照する
 
 AIは配備先を読む。リポジトリ移動・改名後は、生成ヘッダーの正本パス更新のため新しい場所で再配備する。

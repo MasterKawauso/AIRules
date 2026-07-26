@@ -13,7 +13,7 @@ cd D:\AIRules\AIRules
 .\deploy.ps1
 ```
 
-`InstallMCPElse.cmd`をダブルクリックすると、PM Skills・Unity公式ベータ版Unity CLI・BlenderMCPを未導入時だけ導入する。配備処理は含まれない。PowerShellを新しく開いてから`unity --version`で確認する。
+`InstallMCPElse.cmd`をダブルクリックすると、PM Skills・Unity公式ベータ版Unity CLI・UnityMCP・BlenderMCPを未導入時だけ導入する。配備処理は含まれない。PowerShellを新しく開いてから`unity --version`で確認する。個別に実行する場合は`installMCPElse.ps1 -Component UnityMcp`のように指定し、`-WhatIf`で変更内容を先に確認できる。
 
 | 配備元 | 配備先/用途 |
 |---|---|
@@ -71,6 +71,20 @@ unity pipeline install
 
 `com.unity.pipeline`はUnity 6.0 LTS以降で動作する実験的パッケージである。Editorを開いた状態で`unity command eval`などを使うため、対象プロジェクトを指定せずにdeployから自動追加はしない。CLIの更新は`unity upgrade`を使う。
 
+## UnityMCP（InstallMCPElse.cmdで自動導入）
+
+`CoplayDev/unity-mcp`（MCP for Unity）をCodexとClaude Codeへ`unityMCP`として登録する。BlenderMCPと同じく各CLIの`mcp add`を使い、Claudeには`--scope user`を付ける。
+
+```powershell
+.\installMCPElse.ps1 -Component UnityMcp
+```
+
+サーバ本体はPyPIの`mcpforunityserver`をuvxが実行時取得するため、`uv`が未導入なら登録せずスキップする。Unity側の導入はprojectごとの操作なので自動化せず、手順表示だけを行う。
+
+- 対象projectのPackage Managerへ`https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity`を追加する
+- `Window → MCP for Unity`で接続を確認する。同ウィンドウの`Configure All Detected Clients`でも登録できるが、その場合`uvx`が絶対パスで書かれるため、本スクリプトからは内容差分として停止扱いになる
+- MCP経由でEditorのAsset・Sceneを変更できる。対象projectをGit管理下に置いてから使う
+
 ## BlenderMCP（InstallMCPElse.cmdで自動導入）
 
 `ahujasid/blender-mcp`をCodexとClaude Codeへ登録する。設定ファイルを直接編集せず、各CLIの`mcp add`で登録する。Claudeは既定scopeがlocalのため`--scope user`を付ける。
@@ -104,13 +118,15 @@ Get-ChildItem D:\ -Directory -Depth 1 | ForEach-Object {
 hooks = true
 ```
 
-## MCP（任意・未導入）
+## MCP（任意）
 
-本仕組みはMCP非依存で、自動導入しない。
+本仕組み自体はMCP非依存。`InstallMCPElse.cmd`が導入するのはクライアント側のMCP登録だけで、ルール配備には影響しない。
 
-- Unity: Package Managerで`https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity`を追加し、`Window → MCP For Unity`から設定。手動時は画面の`claude mcp add`またはCodex `config.toml`へ同等設定を登録
+- Unity: `installMCPElse.ps1`がCodex/Claudeへ`unityMCP`（`uvx --from mcpforunityserver mcp-for-unity --transport stdio`）を登録する。サーバはuvxがPyPIから実行時取得するため`uv`が必須。Unity側は対象projectのPackage Managerで`https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity`を追加し、`Window → MCP for Unity`で接続を確認する
 - Godot: Coding-Solo/godot-mcp等をclone/buildし、`claude mcp add godot -- node <path>/build/index.js`
 - UE5: 2026年7月時点で公式版なし。`chongdashu/unreal-mcp`等は必要時に評価
+
+同名で内容の異なるMCPが既に登録されている場合は差分を表示して停止する。上書きは`-ReplaceExistingMcp`の明示指定時だけ行い、直前に`%LOCALAPPDATA%\AIRules\backup\<日時>\`へ設定をバックアップする。Unity側のMCP for Unityウィンドウから設定した場合は`uvx`が絶対パスで登録されるため、内容が同等でも差分として停止することがある。
 
 ## 確認
 
