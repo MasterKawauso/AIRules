@@ -3,6 +3,7 @@
 # The gate records only classification state; prompts and transcripts are not copied.
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$script:StateSchemaVersion = 2
 
 function Write-JsonResult {
     param([hashtable]$Value)
@@ -47,7 +48,7 @@ function Read-State {
     if ($null -eq $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
     try {
         $state = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable
-        if ($state.schemaVersion -ne 1 -or $state.sessionId -ne $SessionId) { return $null }
+        if ($state.schemaVersion -ne $script:StateSchemaVersion -or $state.sessionId -ne $SessionId) { return $null }
         return $state
     } catch {
         return $null
@@ -77,6 +78,14 @@ function Test-NewWorkUnit {
     return $Text -match '(?i)(別件|別の依頼|新しい依頼|次のタスク|新規タスク|new\s+task|separate\s+task)'
 }
 
+function Test-NaturalApprovalText {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text) -or $Text.Length -gt 160) { return $false }
+    $answer = $Text.Trim()
+    if ($answer -match '(?i)(いいえ|違う|変更して|選び直|やめ|中止|not\s+that|no\b)') { return $false }
+    return $answer -match '(?i)^(はい|うん|了解|了承|承認|よい|良い|それで|その案で|推奨案で|おすすめで|そのまま|進めて|続けて|お願いします|任せます?|ok|okay|yes|proceed)(進めて(ください)?|お願いします|構いません|でよいです|で良いです)?[。.!！]?$'
+}
+
 function Test-ExplicitSelection {
     param([string]$Text, [hashtable]$ExistingState)
     if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
@@ -84,8 +93,7 @@ function Test-ExplicitSelection {
     if ($Text -match '(?im)^\s*AIRULES_WORKFLOW_SELECTION:\s*owner=(Codex|Claude|current);\s*model=([A-Za-z0-9._-]+);\s*thinking=(low|medium|high|xhigh|max|ultra);\s*scope=.+$') {
         return $true
     }
-    if ($Text -match '(?i)(現在|今|起動中).{0,12}(AI|Codex|Claude).{0,40}(そのまま|続行|進め)' -and
-        $Text -match '(?i)(確認.{0,8}(不要|待たない|省略)|確認待ちにしない|proceed\s+without\s+confirmation)') {
+    if ($Text -match '(?i)(現在|今|起動中|選択中).{0,20}(AI|Codex|Claude|モデル|設定).{0,40}(そのまま|続行|進め|使って|任せ)') {
         return $true
     }
 
@@ -95,8 +103,8 @@ function Test-ExplicitSelection {
     if ($hasOwner -and $hasModel -and $hasThinking) { return $true }
 
     if ($null -ne $ExistingState -and $ExistingState.status -eq 'pending' -and
-        $ExistingState.recommendationPresented -eq $true -and $Text.Length -le 120) {
-        return $Text.Trim() -match '(?i)^(推奨案|その案|それ|おすすめ|recommended)(で|を)?(そのまま)?(進めて(ください)?|お願いします|採用|承認|ok|okay|proceed)?[。.!！]?$|^(ok|okay|yes|proceed)[。.!！]?$'
+        $ExistingState.recommendationPresented -eq $true -and $Text.Length -le 160) {
+        return Test-NaturalApprovalText $Text
     }
     return $false
 }
@@ -108,15 +116,58 @@ function Test-NegatedTerm {
         ($Text -match "(?i)(without\s+changing|do\s+not\s+(change|touch)|keep).{0,24}$escaped")
 }
 
+function Get-WorkflowRequestText {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+    # Codex may include repository instructions and environment metadata in the user
+    # payload. They describe policy/context, not the action requested by the user.
+    $request = [regex]::Replace($Text, '(?is)<INSTRUCTIONS>.*?</INSTRUCTIONS>', ' ')
+    $request = [regex]::Replace($request, '(?is)<environment_context>.*?</environment_context>', ' ')
+    $request = [regex]::Replace($request, '(?im)^\s*#\s*AGENTS\.md instructions\s*$', ' ')
+    return $request.Trim()
+}
+
+function Test-ExplicitMinorImplementation {
+    param(
+        [string]$Text,
+        [bool]$Design,
+        [bool]$Review,
+        [bool]$Delegation
+    )
+    if ($Design -or $Delegation) { return $false }
+
+    $targetPattern = '(?i)(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]+\.(cs|cpp|cc|c|h|hpp|gd|ts|tsx|js|jsx|py|java|kt|rs|go|rb|php|swift|md|txt|json|ya?ml|toml|ps1|sh)(?![A-Za-z0-9_.-])'
+    $targets = @([regex]::Matches($Text, $targetPattern) | ForEach-Object { $_.Value.ToLowerInvariant() } | Select-Object -Unique)
+    if ($targets.Count -lt 1 -or $targets.Count -gt 2) { return $false }
+    if ($targets.Count -eq 2 -and @($targets | Where-Object { $_ -match '(?i)(test|tests|spec|specs)' }).Count -ne 1) { return $false }
+
+    $localChange = $Text -match '(?i)(誤字|typo|文言|コメント|comment|import|using|定数値?|constant|比較演算子|条件式|Nullチェック|null\s*(check|guard))'
+    $singleLocation = $Text -match '(?i)(1箇所|一箇所|1か所|一か所|単一|だけ|のみ|指定された|明示された|既存メソッド内|existing\s+method)'
+    if (-not ($localChange -and $singleLocation)) { return $false }
+
+    $disallowed = $Text -match '(?i)(Public\s+API|公開API|データ構造|保存形式|schema|スキーマ|データ移行|外部依存|外部ライブラリ|dependency|package追加|SDK追加|設定|config|Project\s+Settings|Build\s+Settings|Tags\s+and\s+Layers|project\.godot|security|セキュリティ|認証|権限|責務分割|依存方向|状態遷移|公開境界|新規.{0,8}(ファイル|クラス|型|interface|メソッド|メンバー)|(ファイル|クラス|型|interface|メソッド|メンバー).{0,8}(追加|作成)|改名|リネーム|移動|削除|rename|delete|remove|複数ファイル|全体|一括|横断|呼び出し側)'
+    return -not $disallowed
+}
+
 function Get-WorkflowClassification {
     param([string]$Text)
     $result = [ordered]@{ Required = $false; Reasons = @(); ResponsibilityCount = 0 }
+    $Text = Get-WorkflowRequestText $Text
     if ([string]::IsNullOrWhiteSpace($Text)) { return $result }
 
-    $change = $Text -match '(?i)(実装|修正|変更|追加|削除|移行|更新|作成|構築|導入|置換|リファクタ|直して|fix|implement|change|add|remove|migrate|update|create|build|refactor)'
+    $implementationMention = $Text -match '(?i)(実装|修正|変更|追加|削除|移行|更新|作成|構築|導入|置換|リファクタ|コーディング|コードを書|編集|直して|fix|implement|change|add|remove|migrate|update|create|build|refactor|write\s+code|edit)'
     $design = $Text -match '(?i)(設計|アーキテクチャ|責務分割|依存方向|状態遷移|公開境界|design|architecture)'
+    $review = $Text -match '(?i)(レビュー|査読|review|検証して|検証してください|(差分|実装結果|コード).{0,12}(確認して|確認してください|検証して|検証してください))'
     $delegation = $Text -match '(?i)(Sub\s*Agent|サブエージェント|複数AI|別AI|委譲|並列作業|並列実装|相互レビュー|multi-agent|delegate)'
-    if (-not ($change -or $design -or $delegation)) { return $result }
+    $positiveImplementation = $Text -match '(?i)((実装|修正|変更|追加|削除|移行|更新|作成|構築|導入|置換|リファクタ|コーディング|編集)\s*(を\s*)?(して|してください|してほしい|お願い|進めて|行って|実施して|対応して|任せて|着手して)|コードを書(いて|く|き)|直して|作って|fix\s+(it|this|the)|implement\s+(it|this|the)|please\s+(implement|change|add|remove|edit))'
+    $negatedImplementation = $Text -match '(?i)((実装|修正|変更|追加|削除|更新|作成|コーディング|編集|コードを書).{0,12}(ではない|じゃない|しない|不要|伴わない|行わない|対象外|禁止)|(コード|ファイル).{0,12}(変更しない|編集しない|触らない)|without\s+(coding|implementation|changes)|do\s+not\s+(implement|change|edit|modify))'
+    $readOnlyRequest = $Text -match '(?i)(調査|質問|回答|説明|解説|相談|対話|教えて|確認して|確認してください|分析|原因特定|できますか|できる[？?]|可能ですか|[？?]|investigate|explain|answer|question|consult|discuss|analy[sz]e|is it possible|can (you|we|i))'
+    $terseImplementation = $implementationMention -and $Text -match '(?i)^\s*.{0,100}(実装|修正|変更|追加|削除|移行|更新|作成|構築|導入|置換|リファクタ|fix|implement|change|add|remove|migrate|update|create|build|refactor)\s*[。.!！]?\s*$'
+    $implementation = $positiveImplementation -or ($terseImplementation -and -not $readOnlyRequest -and -not $negatedImplementation)
+    if (-not $implementation) { return $result }
+
+    if ($readOnlyRequest -and -not $positiveImplementation) { return $result }
+    if ($implementation -and (Test-ExplicitMinorImplementation $Text $design $review $delegation)) { return $result }
 
     $reasons = [Collections.Generic.List[string]]::new()
     $hardTerms = [ordered]@{
@@ -128,7 +179,7 @@ function Get-WorkflowClassification {
     }
     foreach ($reason in $hardTerms.Keys) {
         foreach ($term in $hardTerms[$reason]) {
-            if (($change -or $design) -and $Text -match [regex]::Escape($term) -and -not (Test-NegatedTerm $Text $term)) {
+            if (($implementation -or $design) -and $Text -match [regex]::Escape($term) -and -not (Test-NegatedTerm $Text $term)) {
                 $reasons.Add($reason)
                 break
             }
@@ -150,15 +201,15 @@ function Get-WorkflowClassification {
     }
     $result.ResponsibilityCount = $categoryCount
 
-    $minor = $Text -match '(?i)(軽微|単一ファイル|1ファイル|one[- ]file|誤字|typo|文言修正|コメントのみ|importのみ|明確な単一変更)'
-    if ($design -and -not $minor) { $reasons.Add('設計判断を含む変更') }
-    if (($change -or $design) -and $categoryCount -ge 2) { $reasons.Add('複数責務変更') }
+    if ($design) { $reasons.Add('設計') }
+    if ($implementation) { $reasons.Add('実装・修正') }
+    if ($review) { $reasons.Add('レビュー') }
+    if (($implementation -or $design) -and $categoryCount -ge 2) { $reasons.Add('複数責務変更') }
     if ($delegation) {
         $reasons.Add('担当・モデル選択で品質・費用・時間が変わる分担')
     }
 
     $uniqueReasons = @($reasons | Select-Object -Unique)
-    if ($minor -and $uniqueReasons.Count -eq 0) { return $result }
     $result.Reasons = $uniqueReasons
     $result.Required = $uniqueReasons.Count -gt 0
     return $result
@@ -237,12 +288,14 @@ function Resolve-StateFromTranscript {
     foreach ($prompt in Get-TranscriptUserPrompts ([string](Get-PropertyValue $Payload 'transcript_path'))) {
         if (Test-NewWorkUnit $prompt) { $state = $null }
         if (Test-ExplicitSelection $prompt $state) {
-            $state = [ordered]@{ schemaVersion = 1; sessionId = $sessionId; cwd = $cwd; status = 'selected'; reasons = @(); updatedAt = [DateTime]::UtcNow.ToString('o') }
+            $state = [ordered]@{ schemaVersion = $script:StateSchemaVersion; sessionId = $sessionId; cwd = $cwd; status = 'selected'; enforceCurrent = $false; reasons = @(); updatedAt = [DateTime]::UtcNow.ToString('o') }
             continue
         }
         $classification = Get-WorkflowClassification $prompt
         if ($classification.Required -and ($null -eq $state -or $state.status -ne 'selected')) {
-            $state = [ordered]@{ schemaVersion = 1; sessionId = $sessionId; cwd = $cwd; status = 'pending'; reasons = $classification.Reasons; updatedAt = [DateTime]::UtcNow.ToString('o') }
+            $state = [ordered]@{ schemaVersion = $script:StateSchemaVersion; sessionId = $sessionId; cwd = $cwd; status = 'pending'; enforceCurrent = $true; recommendationPresented = $false; reasons = $classification.Reasons; updatedAt = [DateTime]::UtcNow.ToString('o') }
+        } elseif ($null -ne $state -and $state.status -eq 'pending') {
+            $state.enforceCurrent = $false
         }
     }
     return $state
@@ -276,6 +329,18 @@ function Test-MutatingTool {
         if ([string]::IsNullOrWhiteSpace($agent)) { $agent = [string](Get-PropertyValue $ToolInput 'agent_type') }
         return $agent -notin @('Explore', 'statusline-setup', 'claude-code-guide')
     }
+    if ($ToolName -match '(?i)^mcp__(node_repl|.*node.*)__js$') {
+        $code = if ($ToolInput -is [string]) { $ToolInput } else { [string](Get-PropertyValue $ToolInput 'code') }
+        if ([string]::IsNullOrWhiteSpace($code)) { $code = [string](Get-PropertyValue $ToolInput 'script') }
+        if ([string]::IsNullOrWhiteSpace($code)) { $code = [string](Get-PropertyValue $ToolInput 'input') }
+        if ([string]::IsNullOrWhiteSpace($code)) { return $true }
+        if ($code -match '(?i)(writeFile|appendFile|truncate|unlink|rmSync|rename|mkdir|rmdir|copyFile|createWriteStream|apply_patch|shell_command|exec_command|child_process|spawn\(|exec\(|\bPOST\b|\bPUT\b|\bPATCH\b|\bDELETE\b|click\(|fill\(|type\(|press\(|upload|download|install|create_|update_|delete_|remove_|move_|rename_|write_|execute_)') { return $true }
+        foreach ($call in [regex]::Matches($code, '(?i)tools\.([A-Za-z0-9_]+)')) {
+            $tool = $call.Groups[1].Value
+            if ($tool -notmatch '(?i)(^|__)(get|list|read|search|find|query|fetch|view|inspect|open)[A-Za-z0-9_]*$') { return $true }
+        }
+        return $false
+    }
     if ($ToolName -match '(?i)^mcp__') {
         if ($ToolName -match '(?i)__(get|list|read|search|find|query|fetch|view|inspect|open)[A-Za-z0-9_]*$') { return $false }
         return $true
@@ -289,12 +354,14 @@ function Test-CompliantRecommendation {
     $hasOwner = $Message -match '(?i)(担当AI|Codex|Claude)'
     $hasModel = $Message -match '(?i)(モデル|opus|sonnet|haiku|fable|gpt-[A-Za-z0-9._-]+)'
     $hasThinking = $Message -match '(?i)(思考深度|reasoning|effort|low|medium|high|xhigh|max|ultra)'
+    $hasWorkerPlan = $Message -match '(?i)(Worker|Sub\s*Agent|サブエージェント)'
+    $hasCurrentSetting = $Message -match '(?i)(現在|現行|current).{0,50}(モデル|model|gpt-|opus|sonnet|haiku).{0,50}(思考深度|reasoning|effort|low|medium|high|xhigh|max|ultra)'
     $tradeoffCount = 0
     foreach ($pattern in @('品質|quality', '費用|cost|token', '時間|所要|速度|time|latency')) {
         if ($Message -match "(?i)$pattern") { $tradeoffCount++ }
     }
     $waitsForUser = $Message -match '(?i)(回答|選択|指定|どれ|よいですか|待ちます|確認|choose|reply|which)'
-    return $hasOwner -and $hasModel -and $hasThinking -and $tradeoffCount -ge 2 -and $waitsForUser
+    return $hasOwner -and $hasModel -and $hasThinking -and $hasWorkerPlan -and $hasCurrentSetting -and $tradeoffCount -ge 2 -and $waitsForUser
 }
 
 $raw = [Console]::In.ReadToEnd()
@@ -310,7 +377,7 @@ if ($eventName -eq 'UserPromptSubmit') {
     $prompt = [string](Get-PropertyValue $payload 'prompt')
     $existing = Read-State $sessionId
     if (Test-NewWorkUnit $prompt) {
-        $existing = [ordered]@{ schemaVersion = 1; sessionId = $sessionId; cwd = $cwd; status = 'none'; reasons = @(); updatedAt = [DateTime]::UtcNow.ToString('o') }
+        $existing = [ordered]@{ schemaVersion = $script:StateSchemaVersion; sessionId = $sessionId; cwd = $cwd; status = 'none'; enforceCurrent = $false; reasons = @(); updatedAt = [DateTime]::UtcNow.ToString('o') }
         $null = Write-State $existing
     }
 
@@ -321,29 +388,34 @@ if ($eventName -eq 'UserPromptSubmit') {
     )
     if ((Test-ExplicitSelection $prompt $existing) -or $documentSelectionApplies) {
         $source = if ($null -ne $documentSelection) { $documentSelection.Source } else { 'conversation' }
-        $state = [ordered]@{ schemaVersion = 1; sessionId = $sessionId; cwd = $cwd; status = 'selected'; selectionSource = $source; reasons = @(); updatedAt = [DateTime]::UtcNow.ToString('o') }
+        $state = [ordered]@{ schemaVersion = $script:StateSchemaVersion; sessionId = $sessionId; cwd = $cwd; status = 'selected'; enforceCurrent = $false; selectionSource = $source; reasons = @(); updatedAt = [DateTime]::UtcNow.ToString('o') }
         $null = Write-State $state
         exit 0
     }
 
     $classification = Get-WorkflowClassification $prompt
     if ($classification.Required -and ($null -eq $existing -or $existing.status -ne 'selected')) {
-        $state = [ordered]@{ schemaVersion = 1; sessionId = $sessionId; cwd = $cwd; status = 'pending'; recommendationPresented = $false; reasons = $classification.Reasons; updatedAt = [DateTime]::UtcNow.ToString('o') }
+        $state = [ordered]@{ schemaVersion = $script:StateSchemaVersion; sessionId = $sessionId; cwd = $cwd; status = 'pending'; enforceCurrent = $true; recommendationPresented = $false; reasons = $classification.Reasons; updatedAt = [DateTime]::UtcNow.ToString('o') }
         $null = Write-State $state
         $reasonText = [string]::Join('、', $classification.Reasons)
         Write-JsonResult @{
             hookSpecificOutput = @{
                 hookEventName = 'UserPromptSubmit'
-                additionalContext = "AIRules workflow gate: この作業は担当AI・モデル・思考深度の選択待ち（判定: $reasonText）。読取調査は可能だが、設計確定・変更・委譲の前に推奨案と品質・費用・時間差を提示して回答を待つこと。"
+                additionalContext = "AIRules workflow gate: この作業は担当AI・モデル・思考深度の選択待ち（判定: $reasonText）。読取調査は可能だが、実変更前に現在設定、Worker/Sub Agentの使用有無を含む推奨案、品質・費用・時間差を提示して回答を待つこと。親Codexと選択モデルが異なる場合は指定モデルのWorkerへ実装を任せること。"
             }
         }
+    }
+    if ($null -ne $existing -and $existing.status -eq 'pending') {
+        $existing.enforceCurrent = Test-NaturalApprovalText $prompt
+        $existing.updatedAt = [DateTime]::UtcNow.ToString('o')
+        $null = Write-State $existing
     }
     exit 0
 }
 
 if ($eventName -eq 'PreToolUse') {
     $state = Get-EffectiveState $payload
-    if ($null -eq $state -or $state.status -ne 'pending') { exit 0 }
+    if ($null -eq $state -or $state.status -ne 'pending' -or $state.enforceCurrent -ne $true) { exit 0 }
     $toolName = [string](Get-PropertyValue $payload 'tool_name')
     $toolInput = Get-PropertyValue $payload 'tool_input'
     if (-not (Test-MutatingTool $toolName $toolInput)) { exit 0 }
@@ -353,7 +425,7 @@ if ($eventName -eq 'PreToolUse') {
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
             permissionDecision = 'deny'
-            permissionDecisionReason = "AIRules workflow gate: 担当AI・モデル・思考深度が未選択のため $toolName を停止した（$reasonText）。推奨案と品質・費用・時間差を提示し、ユーザー回答後に再実行すること。"
+            permissionDecisionReason = "AIRules workflow gate: 担当AI・モデル・思考深度が未選択のため $toolName を停止した（$reasonText）。現在設定、Worker/Sub Agentの使用有無を含む推奨案、品質・費用・時間差を提示し、ユーザー回答後に再実行すること。"
         }
         systemMessage = 'AIRules: workflow selection is pending; mutating/delegating tool call denied.'
     }
@@ -361,7 +433,7 @@ if ($eventName -eq 'PreToolUse') {
 
 if ($eventName -eq 'Stop') {
     $state = Get-EffectiveState $payload
-    if ($null -eq $state -or $state.status -ne 'pending') { Write-JsonResult @{} }
+    if ($null -eq $state -or $state.status -ne 'pending' -or $state.enforceCurrent -ne $true) { Write-JsonResult @{} }
     $message = [string](Get-PropertyValue $payload 'last_assistant_message')
     if (Test-CompliantRecommendation $message) {
         $state.recommendationPresented = $true
@@ -371,7 +443,7 @@ if ($eventName -eq 'Stop') {
     }
     Write-JsonResult @{
         decision = 'block'
-        reason = 'AIRules workflow gate: 担当AI・モデル・思考深度の推奨案と品質・費用・時間差を提示し、ユーザーの選択を待つ応答へ直すこと。設計・実装内容を先に確定してはならない。'
+        reason = 'AIRules workflow gate: 現在設定、推奨する担当AI・モデル・思考深度、Worker/Sub Agentの使用有無、品質・費用・時間差をまとめて提示し、ユーザーの選択を待つ応答へ直すこと。実変更を先に進めてはならない。'
     }
 }
 

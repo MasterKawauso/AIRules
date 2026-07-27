@@ -121,7 +121,7 @@ Get-ChildItem D:\ -Directory -Depth 1 | ForEach-Object {
 AIRULES_WORKFLOW_SELECTION: owner=Codex; model=gpt-5.6-sol; thinking=medium; scope=認証API移行
 ```
 
-3項目の欠落、未承認、別scopeの記録は無効。新しい会話でもscopeが一致する同一作業の実装・修正・検証・必要なレビューまで有効で、別作業には流用しない。機械ゲートに採用させるには、再開依頼に同じscope文字列を書くか、「`PLAN.md`の作業を再開」のように記録元を明示する。
+3項目の欠落、未承認、別scopeの記録は無効。新しい会話でもscopeが一致する同一作業の設計・実装・修正・検証・レビューまで有効で、工程ごとに聞き直さず、別作業には流用しない。機械ゲートに採用させるには、再開依頼に同じscope文字列を書くか、「`PLAN.md`の作業を再開」のように記録元を明示する。
 
 ## MCP（任意）
 

@@ -78,12 +78,102 @@ try {
     New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
     $minorSession = 'minor-session'
-    $minor = Invoke-Hook $workflowHook (New-Payload $minorSession 'UserPromptSubmit' 'README.mdの誤字を1简所だけ修正してください。軽微な単一ファイル修正です。')
+    $minor = Invoke-Hook $workflowHook (New-Payload $minorSession 'UserPromptSubmit' 'README.mdの誤字を1箇所だけ修正してください。')
     $minorTool = New-Payload $minorSession 'PreToolUse'
     $minorTool.tool_name = 'Edit'
     $minorTool.tool_input = @{ file_path = 'README.md' }
     $minorEdit = Invoke-Hook $workflowHook $minorTool
-    Assert-True ($minor.Text -eq '' -and $minorEdit.Text -eq '') '軽微な単一ファイル修正は停止しない'
+    Assert-True ($minor.Text -eq '' -and $minorEdit.Text -eq '') '対象と単一箇所が明確な局所修正は停止しない'
+
+    $minorWithTestSession = 'minor-with-test-session'
+    $minorWithTest = Invoke-Hook $workflowHook (New-Payload $minorWithTestSession 'UserPromptSubmit' 'Foo.csの既存メソッド内の比較演算子1箇所だけ修正し、FooTests.csの対応テストだけ更新してください。')
+    $minorWithTestTool = New-Payload $minorWithTestSession 'PreToolUse'
+    $minorWithTestTool.tool_name = 'Edit'
+    $minorWithTestTool.tool_input = @{ file_path = 'Foo.cs' }
+    $minorWithTestEdit = Invoke-Hook $workflowHook $minorWithTestTool
+    Assert-True ($minorWithTest.Text -eq '' -and $minorWithTestEdit.Text -eq '') '実装1ファイルと直接対応する既存テスト1つの局所修正は停止しない'
+
+    $claimedMinorSession = 'claimed-minor-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $claimedMinorSession 'UserPromptSubmit' 'Bug.csの軽微な修正です。簡単なのでそのまま修正してください。')
+    $claimedMinorTool = New-Payload $claimedMinorSession 'PreToolUse'
+    $claimedMinorTool.tool_name = 'Edit'
+    $claimedMinorTool.tool_input = @{ file_path = 'Bug.cs' }
+    $claimedMinorEdit = Invoke-Hook $workflowHook $claimedMinorTool
+    Assert-True ((Get-Decision $claimedMinorEdit) -eq 'deny') '軽微という自己申告だけでは停止を解除しない'
+
+    $minorPublicApiSession = 'minor-public-api-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $minorPublicApiSession 'UserPromptSubmit' 'Api.csのPublic APIにある比較演算子1箇所だけ修正してください。')
+    $minorPublicApiTool = New-Payload $minorPublicApiSession 'PreToolUse'
+    $minorPublicApiTool.tool_name = 'Edit'
+    $minorPublicApiTool.tool_input = @{ file_path = 'Api.cs' }
+    $minorPublicApiEdit = Invoke-Hook $workflowHook $minorPublicApiTool
+    Assert-True ((Get-Decision $minorPublicApiEdit) -eq 'deny') 'Public APIに触れる局所修正は軽微扱いしない'
+
+    $minorConfigSession = 'minor-config-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $minorConfigSession 'UserPromptSubmit' 'Settings.csの設定定数1箇所だけ変更してください。')
+    $minorConfigTool = New-Payload $minorConfigSession 'PreToolUse'
+    $minorConfigTool.tool_name = 'Edit'
+    $minorConfigTool.tool_input = @{ file_path = 'Settings.cs' }
+    $minorConfigEdit = Invoke-Hook $workflowHook $minorConfigTool
+    Assert-True ((Get-Decision $minorConfigEdit) -eq 'deny') '設定に触れる局所修正は軽微扱いしない'
+
+    $minorNewFileSession = 'minor-new-file-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $minorNewFileSession 'UserPromptSubmit' 'Helper.csを新規ファイルとして作り、条件式1箇所だけ追加してください。')
+    $minorNewFileTool = New-Payload $minorNewFileSession 'PreToolUse'
+    $minorNewFileTool.tool_name = 'Write'
+    $minorNewFileTool.tool_input = @{ file_path = 'Helper.cs' }
+    $minorNewFileWrite = Invoke-Hook $workflowHook $minorNewFileTool
+    Assert-True ((Get-Decision $minorNewFileWrite) -eq 'deny') '新規ファイルを伴う局所実装は軽微扱いしない'
+
+    $minorTwoFilesSession = 'minor-two-files-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $minorTwoFilesSession 'UserPromptSubmit' 'Foo.csとBar.csの条件式をそれぞれ1箇所だけ修正してください。')
+    $minorTwoFilesTool = New-Payload $minorTwoFilesSession 'PreToolUse'
+    $minorTwoFilesTool.tool_name = 'Edit'
+    $minorTwoFilesTool.tool_input = @{ file_path = 'Foo.cs' }
+    $minorTwoFilesEdit = Invoke-Hook $workflowHook $minorTwoFilesTool
+    Assert-True ((Get-Decision $minorTwoFilesEdit) -eq 'deny') '実装ファイル2つの局所修正は軽微扱いしない'
+
+    $researchSession = 'research-session'
+    $research = Invoke-Hook $workflowHook (New-Payload $researchSession 'UserPromptSubmit' 'Public API変更の影響を調査して説明してください。実装や設定変更はしません。')
+    $researchTool = New-Payload $researchSession 'PreToolUse'
+    $researchTool.tool_name = 'Write'
+    $researchTool.tool_input = @{ file_path = 'should-not-be-used.md' }
+    $researchWrite = Invoke-Hook $workflowHook $researchTool
+    Assert-True ($research.Text -eq '' -and $researchWrite.Text -eq '') '変更対象に言及する調査・説明だけの依頼は選択待ちにしない'
+
+    $questionSession = 'question-session'
+    $question = Invoke-Hook $workflowHook (New-Payload $questionSession 'UserPromptSubmit' 'このPublic APIは変更できる？ まず可否だけ回答して。')
+    $questionTool = New-Payload $questionSession 'PreToolUse'
+    $questionTool.tool_name = 'Write'
+    $questionTool.tool_input = @{ file_path = 'should-not-be-used.md' }
+    $questionWrite = Invoke-Hook $workflowHook $questionTool
+    Assert-True ($question.Text -eq '' -and $questionWrite.Text -eq '') '実装可否の質問回答だけなら選択待ちにしない'
+
+    $designQuestionSession = 'design-question-session'
+    $designQuestion = Invoke-Hook $workflowHook (New-Payload $designQuestionSession 'UserPromptSubmit' 'この機能に新しい状態遷移の設計は必要？ 理由だけ教えて。')
+    $designQuestionTool = New-Payload $designQuestionSession 'PreToolUse'
+    $designQuestionTool.tool_name = 'Write'
+    $designQuestionTool.tool_input = @{ file_path = 'should-not-be-used.md' }
+    $designQuestionWrite = Invoke-Hook $workflowHook $designQuestionTool
+    Assert-True ($designQuestion.Text -eq '' -and $designQuestionWrite.Text -eq '') '設計に言及する疑問への回答だけなら選択待ちにしない'
+
+    $embeddedRulesSession = 'embedded-rules-session'
+    $embeddedRulesPrompt = @'
+# AGENTS.md instructions
+<INSTRUCTIONS>
+Public API、データ構造、設計、実装、レビューではモデルを選択する。
+</INSTRUCTIONS>
+<environment_context>
+  <cwd>D:\AIRules\AIRules</cwd>
+</environment_context>
+deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ 質問への回答だけお願いします。
+'@
+    $embeddedRules = Invoke-Hook $workflowHook (New-Payload $embeddedRulesSession 'UserPromptSubmit' $embeddedRulesPrompt)
+    $embeddedRulesTool = New-Payload $embeddedRulesSession 'PreToolUse'
+    $embeddedRulesTool.tool_name = 'Write'
+    $embeddedRulesTool.tool_input = @{ file_path = 'should-not-be-used.md' }
+    $embeddedRulesWrite = Invoke-Hook $workflowHook $embeddedRulesTool
+    Assert-True ($embeddedRules.Text -eq '' -and $embeddedRulesWrite.Text -eq '') '添付されたAGENTS指示本文を現在の作業依頼として分類しない'
 
     $designSession = 'design-session'
     $design = Invoke-Hook $workflowHook (New-Payload $designSession 'UserPromptSubmit' '状態データ、公開API、UIをまたぐ機能を設計して実装してください。責務分割と依存方向も決めてください。')
@@ -107,7 +197,23 @@ try {
     $designOnlyTool.tool_name = 'Write'
     $designOnlyTool.tool_input = @{ file_path = 'api-design.md' }
     $designOnlyWrite = Invoke-Hook $workflowHook $designOnlyTool
-    Assert-True ((Get-Decision $designOnlyWrite) -eq 'deny') '変更動詞のない設計依頼も未選択なら停止する'
+    Assert-True ($designOnlyWrite.Text -eq '') 'コード変更を伴わない設計だけの依頼は停止しない'
+
+    $reviewOnlySession = 'review-only-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $reviewOnlySession 'UserPromptSubmit' '現在の差分をレビューしてください。変更はしないでください。')
+    $reviewOnlyTool = New-Payload $reviewOnlySession 'PreToolUse'
+    $reviewOnlyTool.tool_name = 'Write'
+    $reviewOnlyTool.tool_input = @{ file_path = 'review.md' }
+    $reviewOnlyWrite = Invoke-Hook $workflowHook $reviewOnlyTool
+    Assert-True ($reviewOnlyWrite.Text -eq '') 'コード変更を伴わないレビューだけの依頼は停止しない'
+
+    $diffCheckSession = 'diff-check-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $diffCheckSession 'UserPromptSubmit' '現在のコード差分を確認してください。問題点を報告してください。')
+    $diffCheckTool = New-Payload $diffCheckSession 'PreToolUse'
+    $diffCheckTool.tool_name = 'Agent'
+    $diffCheckTool.tool_input = @{ subagent_type = 'code-reviewer'; model = 'gpt-5.6-sol' }
+    $diffCheckAgent = Invoke-Hook $workflowHook $diffCheckTool
+    Assert-True ($diffCheckAgent.Text -eq '') 'コード変更を伴わない差分確認は停止しない'
 
     $delegateOnlySession = 'delegate-only-session'
     $null = Invoke-Hook $workflowHook (New-Payload $delegateOnlySession 'UserPromptSubmit' 'Claudeへレビューを委譲してください。')
@@ -115,7 +221,39 @@ try {
     $delegateOnlyTool.tool_name = 'Agent'
     $delegateOnlyTool.tool_input = @{ subagent_type = 'code-reviewer'; model = 'sonnet' }
     $delegateOnlyAgent = Invoke-Hook $workflowHook $delegateOnlyTool
-    Assert-True ((Get-Decision $delegateOnlyAgent) -eq 'deny') '変更動詞のない委譲依頼も未選択なら停止する'
+    Assert-True ($delegateOnlyAgent.Text -eq '') '実装を伴わないレビュー委譲は停止しない'
+
+    $reviewFixSession = 'review-fix-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $reviewFixSession 'UserPromptSubmit' '現在の差分をレビューし、問題があれば修正してください。')
+    $reviewFixTool = New-Payload $reviewFixSession 'PreToolUse'
+    $reviewFixTool.tool_name = 'Edit'
+    $reviewFixTool.tool_input = @{ file_path = 'Api.cs' }
+    $reviewFixEdit = Invoke-Hook $workflowHook $reviewFixTool
+    Assert-True ((Get-Decision $reviewFixEdit) -eq 'deny') 'レビュー後のコード修正まで含む依頼は未選択なら停止する'
+
+    $noCodingSession = 'no-coding-session'
+    $noCoding = Invoke-Hook $workflowHook (New-Payload $noCodingSession 'UserPromptSubmit' 'コーディングを伴わない相談です。設計とレビューの進め方を説明してください。')
+    $noCodingTool = New-Payload $noCodingSession 'PreToolUse'
+    $noCodingTool.tool_name = 'Write'
+    $noCodingTool.tool_input = @{ file_path = 'should-not-be-used.md' }
+    $noCodingWrite = Invoke-Hook $workflowHook $noCodingTool
+    Assert-True ($noCoding.Text -eq '' -and $noCodingWrite.Text -eq '') 'コーディングを伴わない相談・設計・レビューは停止しない'
+
+    $implementationConsultSession = 'implementation-consult-session'
+    $implementationConsult = Invoke-Hook $workflowHook (New-Payload $implementationConsultSession 'UserPromptSubmit' 'この機能の実装について相談したい。選択肢を説明して。')
+    $implementationConsultTool = New-Payload $implementationConsultSession 'PreToolUse'
+    $implementationConsultTool.tool_name = 'Write'
+    $implementationConsultTool.tool_input = @{ file_path = 'should-not-be-used.md' }
+    $implementationConsultWrite = Invoke-Hook $workflowHook $implementationConsultTool
+    Assert-True ($implementationConsult.Text -eq '' -and $implementationConsultWrite.Text -eq '') '実装という語を含む相談だけでは停止しない'
+
+    $terseImplementationSession = 'terse-implementation-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $terseImplementationSession 'UserPromptSubmit' 'Public API変更')
+    $terseImplementationTool = New-Payload $terseImplementationSession 'PreToolUse'
+    $terseImplementationTool.tool_name = 'Edit'
+    $terseImplementationTool.tool_input = @{ file_path = 'Api.cs' }
+    $terseImplementationEdit = Invoke-Hook $workflowHook $terseImplementationTool
+    Assert-True ((Get-Decision $terseImplementationEdit) -eq 'deny') '短い実変更指示は未選択なら停止する'
 
     $multiSession = 'multi-responsibility-session'
     $null = Invoke-Hook $workflowHook (New-Payload $multiSession 'UserPromptSubmit' 'API、保存データ、UIをまとめて変更してください。')
@@ -151,7 +289,7 @@ try {
     Assert-True ((Get-Decision $prematureWrite) -eq 'deny') '推奨案提示前の短い承認語では選択済みにしない'
 
     $recommendationStop = New-Payload $answerSession 'Stop'
-    $recommendationStop.last_assistant_message = '担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhighを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
+    $recommendationStop.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhigh、Sub Agentなしを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
     $null = Invoke-Hook $workflowHook $recommendationStop
     $answer = Invoke-Hook $workflowHook (New-Payload $answerSession 'UserPromptSubmit' '推奨案で進めてください。')
     $answerTool = New-Payload $answerSession 'PreToolUse'
@@ -159,6 +297,81 @@ try {
     $answerTool.tool_input = @{ file_path = 'feature.cs' }
     $answerWrite = Invoke-Hook $workflowHook $answerTool
     Assert-True ($answer.Text -eq '' -and $answerWrite.Text -eq '') '同一会話で回答済みなら再確認しない'
+
+    $naturalAnswerSession = 'natural-answer-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $naturalAnswerSession 'UserPromptSubmit' 'Api.csを修正してください。')
+    $naturalRecommendation = New-Payload $naturalAnswerSession 'Stop'
+    $naturalRecommendation.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はmedium、Sub Agentなしを推奨します。品質は十分で、費用と時間を抑えられます。よいですか。'
+    $null = Invoke-Hook $workflowHook $naturalRecommendation
+    $naturalAnswer = Invoke-Hook $workflowHook (New-Payload $naturalAnswerSession 'UserPromptSubmit' 'よい')
+    $naturalAnswerTool = New-Payload $naturalAnswerSession 'PreToolUse'
+    $naturalAnswerTool.tool_name = 'Edit'
+    $naturalAnswerTool.tool_input = @{ file_path = 'Api.cs' }
+    $naturalAnswerEdit = Invoke-Hook $workflowHook $naturalAnswerTool
+    Assert-True ($naturalAnswer.Text -eq '' -and $naturalAnswerEdit.Text -eq '') '推奨提示後の自然な短文承認を選択済みとして扱う'
+
+    $currentModelSession = 'current-model-session'
+    $currentModel = Invoke-Hook $workflowHook (New-Payload $currentModelSession 'UserPromptSubmit' '今のモデルでそのまま修正を進めて。')
+    $currentModelTool = New-Payload $currentModelSession 'PreToolUse'
+    $currentModelTool.tool_name = 'Edit'
+    $currentModelTool.tool_input = @{ file_path = 'Api.cs' }
+    $currentModelEdit = Invoke-Hook $workflowHook $currentModelTool
+    Assert-True ($currentModel.Text -eq '' -and $currentModelEdit.Text -eq '') '現在モデルでの続行指示を定型文なしで選択済みとして扱う'
+
+    $flowReview = Invoke-Hook $workflowHook (New-Payload $answerSession 'UserPromptSubmit' '実装が終わったので、そのまま差分をレビューしてください。')
+    $flowReviewTool = New-Payload $answerSession 'PreToolUse'
+    $flowReviewTool.tool_name = 'Agent'
+    $flowReviewTool.tool_input = @{ subagent_type = 'code-reviewer'; model = 'gpt-5.6-sol' }
+    $flowReviewAgent = Invoke-Hook $workflowHook $flowReviewTool
+    Assert-True ($flowReview.Text -eq '' -and $flowReviewAgent.Text -eq '') '同じ作業の設計・実装・レビューでは選択を一度だけ再利用する'
+
+    $pausedSession = 'paused-pending-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $pausedSession 'UserPromptSubmit' 'Api.csを修正してください。')
+    $pendingReadTool = New-Payload $pausedSession 'PreToolUse'
+    $pendingReadTool.tool_name = 'mcp__node_repl__js'
+    $pendingReadTool.tool_input = 'const scene = await tools.mcp__unityMCP__get_scene_info({}); text(scene);'
+    $pendingRead = Invoke-Hook $workflowHook $pendingReadTool
+    Assert-True ($pendingRead.Text -eq '') '選択待ちでも変更を含まないNode REPL読取コードは通す'
+
+    $pausedPrompt = Invoke-Hook $workflowHook (New-Payload $pausedSession 'UserPromptSubmit' 'ところで、この機能の用途を説明して。')
+    $pausedTool = New-Payload $pausedSession 'PreToolUse'
+    $pausedTool.tool_name = 'Write'
+    $pausedTool.tool_input = @{ file_path = 'should-not-be-used.md' }
+    $pausedWrite = Invoke-Hook $workflowHook $pausedTool
+    $pausedStop = New-Payload $pausedSession 'Stop'
+    $pausedStop.last_assistant_message = '用途を説明します。'
+    $pausedStopResult = Invoke-Hook $workflowHook $pausedStop
+    Assert-True ($pausedPrompt.Text -eq '' -and $pausedWrite.Text -eq '' -and (Get-Decision $pausedStopResult) -eq '') '選択待ちを途中の質問・説明へ持ち越して強制しない'
+
+    $resumedPrompt = Invoke-Hook $workflowHook (New-Payload $pausedSession 'UserPromptSubmit' 'ではApi.csを修正してください。')
+    $resumedTool = New-Payload $pausedSession 'PreToolUse'
+    $resumedTool.tool_name = 'Edit'
+    $resumedTool.tool_input = @{ file_path = 'Api.cs' }
+    $resumedEdit = Invoke-Hook $workflowHook $resumedTool
+    Assert-True ((Get-Decision $resumedEdit) -eq 'deny') '実作業へ戻った時だけ選択待ちを再開する'
+
+    $pendingMutationTool = New-Payload $pausedSession 'PreToolUse'
+    $pendingMutationTool.tool_name = 'mcp__node_repl__js'
+    $pendingMutationTool.tool_input = @{ code = 'await fs.promises.writeFile("Api.cs", "changed");' }
+    $pendingMutation = Invoke-Hook $workflowHook $pendingMutationTool
+    Assert-True ((Get-Decision $pendingMutation) -eq 'deny') 'Node REPLの変更コードは選択待ちなら停止する'
+
+    $legacySession = 'legacy-state-session'
+    $legacyBytes = [Text.Encoding]::UTF8.GetBytes($legacySession)
+    $legacyHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData($legacyBytes)).Replace('-', '').ToLowerInvariant()
+    New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $stateRoot "$legacyHash.json"), (@{
+        schemaVersion = 1
+        sessionId = $legacySession
+        cwd = $testRoot
+        status = 'pending'
+        reasons = @('実装・修正')
+    } | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+    $legacyTool = New-Payload $legacySession 'PreToolUse'
+    $legacyTool.tool_name = 'Write'
+    $legacyTool.tool_input = @{ file_path = 'legacy.md' }
+    $legacyWrite = Invoke-Hook $workflowHook $legacyTool
+    Assert-True ($legacyWrite.Text -eq '') '旧schemaのpending状態を無効化する'
 
     $currentSession = 'current-ai-session'
     $current = Invoke-Hook $workflowHook (New-Payload $currentSession 'UserPromptSubmit' '現在起動中のAIでそのままPublic API変更を進めて構いません。ここでは確認待ちにしないでください。')
@@ -206,7 +419,7 @@ try {
     $badStop.last_assistant_message = '実装を開始します。'
     $badStopResult = Invoke-Hook $workflowHook $badStop
     $goodStop = New-Payload $stopSession 'Stop'
-    $goodStop.last_assistant_message = '担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhighを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
+    $goodStop.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhigh、Sub Agentなしを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
     $goodStopResult = Invoke-Hook $workflowHook $goodStop
     Assert-True ((Get-Decision $badStopResult) -eq 'block' -and (Get-Decision $goodStopResult) -eq '') 'Stopは推奨提示漏れを差し戻し、適切な確認応答を通す'
 
