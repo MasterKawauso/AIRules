@@ -247,6 +247,22 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
     $implementationConsultWrite = Invoke-Hook $workflowHook $implementationConsultTool
     Assert-True ($implementationConsult.Text -eq '' -and $implementationConsultWrite.Text -eq '') '実装という語を含む相談だけでは停止しない'
 
+    $documentationSession = 'documentation-session'
+    $documentation = Invoke-Hook $workflowHook (New-Payload $documentationSession 'UserPromptSubmit' 'WORKFLOW.mdを意味を保って修正してください。')
+    $documentationTool = New-Payload $documentationSession 'PreToolUse'
+    $documentationTool.tool_name = 'Edit'
+    $documentationTool.tool_input = @{ file_path = 'WORKFLOW.md' }
+    $documentationEdit = Invoke-Hook $workflowHook $documentationTool
+    Assert-True ($documentation.Text -eq '' -and $documentationEdit.Text -eq '') '文書だけの変更は停止しない'
+
+    $mixedCodeAndDocumentationSession = 'mixed-code-documentation-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $mixedCodeAndDocumentationSession 'UserPromptSubmit' 'README.mdとApi.csを変更してください。')
+    $mixedCodeAndDocumentationTool = New-Payload $mixedCodeAndDocumentationSession 'PreToolUse'
+    $mixedCodeAndDocumentationTool.tool_name = 'Edit'
+    $mixedCodeAndDocumentationTool.tool_input = @{ file_path = 'Api.cs' }
+    $mixedCodeAndDocumentationEdit = Invoke-Hook $workflowHook $mixedCodeAndDocumentationTool
+    Assert-True ((Get-Decision $mixedCodeAndDocumentationEdit) -eq 'deny') '文書とコードを含む変更は未選択なら停止する'
+
     $terseImplementationSession = 'terse-implementation-session'
     $null = Invoke-Hook $workflowHook (New-Payload $terseImplementationSession 'UserPromptSubmit' 'Public API変更')
     $terseImplementationTool = New-Payload $terseImplementationSession 'PreToolUse'
@@ -289,7 +305,12 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
     Assert-True ((Get-Decision $prematureWrite) -eq 'deny') '推奨案提示前の短い承認語では選択済みにしない'
 
     $recommendationStop = New-Payload $answerSession 'Stop'
-    $recommendationStop.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhigh、Sub Agentなしを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
+    $recommendationStop.last_assistant_message = @'
+現在のモデルはgpt-5.6-sol、思考深度はmediumです。
+1. （推奨）担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Workerなし。品質: 高、費用: 中、時間: 中。
+2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: medium、Workerなし。品質: 十分、費用: 低、時間: 短。
+「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
+'@
     $null = Invoke-Hook $workflowHook $recommendationStop
     $answer = Invoke-Hook $workflowHook (New-Payload $answerSession 'UserPromptSubmit' '推奨案で進めてください。')
     $answerTool = New-Payload $answerSession 'PreToolUse'
@@ -298,10 +319,44 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
     $answerWrite = Invoke-Hook $workflowHook $answerTool
     Assert-True ($answer.Text -eq '' -and $answerWrite.Text -eq '') '同一会話で回答済みなら再確認しない'
 
+    $numericAnswerSession = 'numeric-answer-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $numericAnswerSession 'UserPromptSubmit' 'API、データ、UIをまたぐ設計実装をしてください。')
+    $numericRecommendation = New-Payload $numericAnswerSession 'Stop'
+    $numericRecommendation.last_assistant_message = @'
+現在のモデルはgpt-5.6-sol、思考深度はmediumです。
+1. （推奨）担当AI: Codex、モデル: gpt-5.6-terra、思考深度: medium、Worker: gpt-5.6-terra / medium。品質: 十分、費用: 低、時間: 短。
+2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Worker: gpt-5.6-sol / high。品質: 高、費用: 高、時間: 長。
+「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
+'@
+    $null = Invoke-Hook $workflowHook $numericRecommendation
+    $numericAnswer = Invoke-Hook $workflowHook (New-Payload $numericAnswerSession 'UserPromptSubmit' '2')
+    $numericTool = New-Payload $numericAnswerSession 'PreToolUse'
+    $numericTool.tool_name = 'Edit'
+    $numericTool.tool_input = @{ file_path = 'numeric.cs' }
+    $numericEdit = Invoke-Hook $workflowHook $numericTool
+    Assert-True ($numericAnswer.Text -eq '' -and $numericEdit.Text -eq '') '番号だけの回答を選択済みとして扱う'
+
+    $recommendedAnswerSession = 'recommended-answer-session'
+    $null = Invoke-Hook $workflowHook (New-Payload $recommendedAnswerSession 'UserPromptSubmit' 'API、データ、UIをまたぐ設計実装をしてください。')
+    $recommendedRecommendation = New-Payload $recommendedAnswerSession 'Stop'
+    $recommendedRecommendation.last_assistant_message = $numericRecommendation.last_assistant_message
+    $null = Invoke-Hook $workflowHook $recommendedRecommendation
+    $recommendedAnswer = Invoke-Hook $workflowHook (New-Payload $recommendedAnswerSession 'UserPromptSubmit' '推奨')
+    $recommendedTool = New-Payload $recommendedAnswerSession 'PreToolUse'
+    $recommendedTool.tool_name = 'Edit'
+    $recommendedTool.tool_input = @{ file_path = 'recommended.cs' }
+    $recommendedEdit = Invoke-Hook $workflowHook $recommendedTool
+    Assert-True ($recommendedAnswer.Text -eq '' -and $recommendedEdit.Text -eq '') '「推奨」だけの回答を1番の選択として扱う'
+
     $naturalAnswerSession = 'natural-answer-session'
     $null = Invoke-Hook $workflowHook (New-Payload $naturalAnswerSession 'UserPromptSubmit' 'Api.csを修正してください。')
     $naturalRecommendation = New-Payload $naturalAnswerSession 'Stop'
-    $naturalRecommendation.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はmedium、Sub Agentなしを推奨します。品質は十分で、費用と時間を抑えられます。よいですか。'
+    $naturalRecommendation.last_assistant_message = @'
+現在のモデルはgpt-5.6-sol、思考深度はmediumです。
+1. （推奨）担当AI: Codex、モデル: gpt-5.6-sol、思考深度: medium、Sub Agentなし。品質: 十分、費用: 低、時間: 短。
+2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Sub Agentなし。品質: 高、費用: 中、時間: 中。
+「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
+'@
     $null = Invoke-Hook $workflowHook $naturalRecommendation
     $naturalAnswer = Invoke-Hook $workflowHook (New-Payload $naturalAnswerSession 'UserPromptSubmit' 'よい')
     $naturalAnswerTool = New-Payload $naturalAnswerSession 'PreToolUse'
@@ -361,7 +416,7 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
     $legacyHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData($legacyBytes)).Replace('-', '').ToLowerInvariant()
     New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $stateRoot "$legacyHash.json"), (@{
-        schemaVersion = 1
+        schemaVersion = 2
         sessionId = $legacySession
         cwd = $testRoot
         status = 'pending'
@@ -371,7 +426,7 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
     $legacyTool.tool_name = 'Write'
     $legacyTool.tool_input = @{ file_path = 'legacy.md' }
     $legacyWrite = Invoke-Hook $workflowHook $legacyTool
-    Assert-True ($legacyWrite.Text -eq '') '旧schemaのpending状態を無効化する'
+    Assert-True ($legacyWrite.Text -eq '') '旧schema 2のpending状態を無効化する'
 
     $currentSession = 'current-ai-session'
     $current = Invoke-Hook $workflowHook (New-Payload $currentSession 'UserPromptSubmit' '現在起動中のAIでそのままPublic API変更を進めて構いません。ここでは確認待ちにしないでください。')
@@ -418,10 +473,18 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
     $badStop = New-Payload $stopSession 'Stop'
     $badStop.last_assistant_message = '実装を開始します。'
     $badStopResult = Invoke-Hook $workflowHook $badStop
+    $unnumberedStop = New-Payload $stopSession 'Stop'
+    $unnumberedStop.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhigh、Sub Agentなしを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
+    $unnumberedStopResult = Invoke-Hook $workflowHook $unnumberedStop
     $goodStop = New-Payload $stopSession 'Stop'
-    $goodStop.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhigh、Sub Agentなしを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
+    $goodStop.last_assistant_message = @'
+現在のモデルはgpt-5.6-sol、思考深度はmediumです。
+1. （推奨）担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Workerなし。品質: 高、費用: 中、時間: 中。
+2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: medium、Workerなし。品質: 十分、費用: 低、時間: 短。
+「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
+'@
     $goodStopResult = Invoke-Hook $workflowHook $goodStop
-    Assert-True ((Get-Decision $badStopResult) -eq 'block' -and (Get-Decision $goodStopResult) -eq '') 'Stopは推奨提示漏れを差し戻し、適切な確認応答を通す'
+    Assert-True ((Get-Decision $badStopResult) -eq 'block' -and (Get-Decision $unnumberedStopResult) -eq 'block' -and (Get-Decision $goodStopResult) -eq '') 'Stopは推奨提示漏れと番号なし候補を差し戻し、番号付き確認応答を通す'
 
     $testHome = Join-Path $testRoot 'home'
     $backup = Join-Path $testRoot 'backup'

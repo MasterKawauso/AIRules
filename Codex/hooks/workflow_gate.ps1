@@ -3,7 +3,7 @@
 # The gate records only classification state; prompts and transcripts are not copied.
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$script:StateSchemaVersion = 2
+$script:StateSchemaVersion = 3
 
 function Write-JsonResult {
     param([hashtable]$Value)
@@ -83,7 +83,7 @@ function Test-NaturalApprovalText {
     if ([string]::IsNullOrWhiteSpace($Text) -or $Text.Length -gt 160) { return $false }
     $answer = $Text.Trim()
     if ($answer -match '(?i)(いいえ|違う|変更して|選び直|やめ|中止|not\s+that|no\b)') { return $false }
-    return $answer -match '(?i)^(はい|うん|了解|了承|承認|よい|良い|それで|その案で|推奨案で|おすすめで|そのまま|進めて|続けて|お願いします|任せます?|ok|okay|yes|proceed)(進めて(ください)?|お願いします|構いません|でよいです|で良いです)?[。.!！]?$'
+    return $answer -match '(?i)^([1-3１-３]|推奨|おすすめ|はい|うん|了解|了承|承認|よい|良い|それで|その案で|推奨案で|おすすめで|そのまま|進めて|続けて|お願いします|任せます?|ok|okay|yes|proceed)(番|案|で)?(進めて(ください)?|お願いします|構いません|でよいです|で良いです)?[。.!！]?$'
 }
 
 function Test-ExplicitSelection {
@@ -127,6 +127,17 @@ function Get-WorkflowRequestText {
     return $request.Trim()
 }
 
+function Test-DocumentationOnlyChange {
+    param([string]$Text)
+    $filePattern = '(?i)(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]+\.(?<ext>[A-Za-z0-9]+)(?![A-Za-z0-9_.-])'
+    $files = @([regex]::Matches($Text, $filePattern))
+    if ($files.Count -gt 0) {
+        $nonDocument = @($files | Where-Object { $_.Groups['ext'].Value -notmatch '^(md|txt|rst|adoc)$' })
+        return $nonDocument.Count -eq 0
+    }
+    return $Text -match '(?i)(README|CHANGELOG|文書|ドキュメント|説明書|手順書).{0,20}(修正|変更|更新|編集|追加|削減|整理)'
+}
+
 function Test-ExplicitMinorImplementation {
     param(
         [string]$Text,
@@ -167,6 +178,7 @@ function Get-WorkflowClassification {
     if (-not $implementation) { return $result }
 
     if ($readOnlyRequest -and -not $positiveImplementation) { return $result }
+    if (Test-DocumentationOnlyChange $Text) { return $result }
     if ($implementation -and (Test-ExplicitMinorImplementation $Text $design $review $delegation)) { return $result }
 
     $reasons = [Collections.Generic.List[string]]::new()
@@ -360,8 +372,14 @@ function Test-CompliantRecommendation {
     foreach ($pattern in @('品質|quality', '費用|cost|token', '時間|所要|速度|time|latency')) {
         if ($Message -match "(?i)$pattern") { $tradeoffCount++ }
     }
+    $hasFirstOption = $Message -match '(?im)^\s*(?:[-*]\s*)?(?:1|１)[.)、：:\s]'
+    $hasSecondOption = $Message -match '(?im)^\s*(?:[-*]\s*)?(?:2|２)[.)、：:\s]'
+    $recommendedFirst = $Message -match '(?im)^\s*(?:[-*]\s*)?(?:1|１)[.)、：:\s].{0,80}(推奨|おすすめ|recommended)'
+    $hasShortReply = $Message -match '(?i)(推奨|おすすめ).{0,24}(1|１)|(?:1|１).{0,24}(推奨|おすすめ)|[「『`]?1[」』`]?(\s*(または|/|・|、)\s*[「『`]?[2-3][」』`]?)?.{0,30}(回答|返信|選択|送)'
     $waitsForUser = $Message -match '(?i)(回答|選択|指定|どれ|よいですか|待ちます|確認|choose|reply|which)'
-    return $hasOwner -and $hasModel -and $hasThinking -and $hasWorkerPlan -and $hasCurrentSetting -and $tradeoffCount -ge 2 -and $waitsForUser
+    return $hasOwner -and $hasModel -and $hasThinking -and $hasWorkerPlan -and $hasCurrentSetting -and
+        $tradeoffCount -ge 2 -and $hasFirstOption -and $hasSecondOption -and $recommendedFirst -and
+        $hasShortReply -and $waitsForUser
 }
 
 $raw = [Console]::In.ReadToEnd()
@@ -401,7 +419,7 @@ if ($eventName -eq 'UserPromptSubmit') {
         Write-JsonResult @{
             hookSpecificOutput = @{
                 hookEventName = 'UserPromptSubmit'
-                additionalContext = "AIRules workflow gate: この作業は担当AI・モデル・思考深度の選択待ち（判定: $reasonText）。読取調査は可能だが、実変更前に現在設定、Worker/Sub Agentの使用有無を含む推奨案、品質・費用・時間差を提示して回答を待つこと。親Codexと選択モデルが異なる場合は指定モデルのWorkerへ実装を任せること。"
+                additionalContext = "AIRules workflow gate: この作業は担当AI・モデル・思考深度の選択待ち（判定: $reasonText）。読取調査は可能だが、実変更前に現在設定を示し、推奨を1番にした2〜3個の番号付き候補として、各候補の担当・モデル・思考深度・Worker使用有無と品質・費用・時間差を提示すること。ユーザーは「推奨」または番号だけで回答できるようにする。親Codexと選択モデルまたは思考深度が異なる場合は、指定値のWorkerを必ず起動して実装を任せ、親が切り替わったとは扱わないこと。"
             }
         }
     }
@@ -425,7 +443,7 @@ if ($eventName -eq 'PreToolUse') {
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
             permissionDecision = 'deny'
-            permissionDecisionReason = "AIRules workflow gate: 担当AI・モデル・思考深度が未選択のため $toolName を停止した（$reasonText）。現在設定、Worker/Sub Agentの使用有無を含む推奨案、品質・費用・時間差を提示し、ユーザー回答後に再実行すること。"
+            permissionDecisionReason = "AIRules workflow gate: 担当AI・モデル・思考深度が未選択のため $toolName を停止した（$reasonText）。現在設定を示し、推奨を1番にした2〜3個の番号付き候補として担当・モデル・思考深度・Worker使用有無と品質・費用・時間差を提示すること。ユーザーは「推奨」または番号だけで回答できる。親Codexと異なるモデルまたは思考深度の選択時は、指定値のWorker起動が必須。"
         }
         systemMessage = 'AIRules: workflow selection is pending; mutating/delegating tool call denied.'
     }
@@ -443,7 +461,7 @@ if ($eventName -eq 'Stop') {
     }
     Write-JsonResult @{
         decision = 'block'
-        reason = 'AIRules workflow gate: 現在設定、推奨する担当AI・モデル・思考深度、Worker/Sub Agentの使用有無、品質・費用・時間差をまとめて提示し、ユーザーの選択を待つ応答へ直すこと。実変更を先に進めてはならない。'
+        reason = 'AIRules workflow gate: 現在設定を示し、推奨を1番にした2〜3個の番号付き候補として、各候補の担当AI・モデル・思考深度・Worker/Sub Agentの使用有無と品質・費用・時間差を提示すること。「推奨」または番号だけで回答できると明記し、ユーザーの選択を待つ応答へ直すこと。親Codexと異なるモデルまたは思考深度の選択時は指定値のWorker起動が必須。実変更を先に進めてはならない。'
     }
 }
 
