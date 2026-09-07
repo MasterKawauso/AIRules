@@ -2,7 +2,7 @@
 
 ## 前提（2026-07-03確認）
 
-Claude Code（`~/.claude`）、Codex CLI 0.142.0（`~/.codex`）、PowerShell 7を導入済み。
+Claude Code（`~/.claude`）またはCodex（`~/.codex`）を利用する。配備スクリプトにはPowerShell 7が必要で、Codex CLIの実行は不要。
 
 ## 配備
 
@@ -20,7 +20,7 @@ cd D:\AIRules\AIRules
 | `Codex/AGENTS.md` | `~/.codex/AGENTS.md`（Codex自動読込） |
 | `Codex/AGENTS.md` | `~/.claude/AGENTS.md`（参照先をSkill名へ変換して生成） |
 | `Codex/airules/*.md` | `~/.codex/airules/` |
-| `Codex/hooks/*.ps1` | `~/.codex/hooks/`と`~/.claude/hooks/`（共通ゲート） |
+| `Codex/hooks/*.ps1` | `~/.codex/hooks/`と`~/.claude/hooks/`（旧Hook呼出用の無動作互換ファイル） |
 | `Codex/settings-hooks.json` | `~/.codex/hooks.json`へAIRules管理commandだけをマージ |
 | `Codex/airules/*.md` | `~/.claude/skills/airules-*/SKILL.md`（frontmatter付きへ変換） |
 | `Claude/CLAUDE.md` | `~/.claude/CLAUDE.md` |
@@ -32,7 +32,9 @@ cd D:\AIRules\AIRules
 
 `~/.claude/settings.json`と`~/.codex/hooks.json`はユーザー管理項目を保持し、AIRules管理commandとmatcherだけをマージする。既存の他Hook、設定、Skillsは削除しない。壊れたJSONや`hooks`がobjectでない設定では、書込み前に配備を停止する。
 
-Codexは安定版hooks機能を使うため、`deploy.ps1`が既存`config.toml`を一時HOMEへ複製し、Codex CLI自身の`codex features enable hooks`と`codex features list`で読取検証後、`features.hooks=true`となった設定だけを配備する。Hook定義の新規・変更後はCodexのセキュリティ仕様により実行前の信頼確認が必要なので、次回起動時に`/hooks`で内容を確認して信頼する。Claude Codeは配備直後からマージ済みHookを使用する。
+旧`workflow_gate.ps1`・`require_agent_model.ps1`のAIRules登録は再配備時に完全一致commandだけを解除する。同じエントリ内のユーザーHookは保持する。旧セッションからの呼出に備え、旧Hook本体はバックアップ後に無動作ファイルへ置換する。ユーザーが独自に作った同名ファイルは上書きせず停止する。
+
+Codexの`config.toml`とhooks機能の有効・無効は変更しない。Claudeの進捗読込・記録リマインダーは引き続き配備する。
 
 ## Claude Skillの管理範囲
 
@@ -113,15 +115,11 @@ Get-ChildItem D:\ -Directory -Depth 1 | ForEach-Object {
 
 旧共通ルールは削除し、project固有`AGENTS.md`は共通部分だけ除いて残す。
 
-## Workflow選択の記録
+## 作業の継続
 
-同じ会話の回答は会話単位の一時状態として保持される。別セッションでも同じ作業単位の選択を引き継ぐ場合だけ、ユーザー承認後に`PLAN.md`または`SESSION.md`へ次の1行を置く。`scope`は現在作業を識別できる短い名前にする。
+通常は現在のAI・モデルで作業を進める。モデル・思考深度を指定したい場合は依頼時に伝える。旧`AIRULES_WORKFLOW_SELECTION`行とHookの選択状態は使わず、既存ファイルに残っていても作業を停止しない。
 
-```text
-AIRULES_WORKFLOW_SELECTION: owner=Codex; model=gpt-5.6-sol; thinking=medium; scope=認証API移行
-```
-
-3項目の欠落、未承認、別scopeの記録は無効。新しい会話でもscopeが一致する同一作業の設計・実装・修正・検証・レビューまで有効で、工程ごとに聞き直さず、別作業には流用しない。機械ゲートに採用させるには、再開依頼に同じscope文字列を書くか、「`PLAN.md`の作業を再開」のように記録元を明示する。
+長期作業では`PLAN.md`・`SESSION.md`に目的、決定事項、現在状態、検証結果、残作業を記録する。再開時は実差分と照合して続ける。
 
 ## MCP（任意）
 

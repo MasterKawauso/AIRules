@@ -139,7 +139,7 @@ function Install-StagedFile {
 }
 
 function Merge-ManagedHooks {
-    param([hashtable]$Hooks, [hashtable]$ManagedHooks)
+    param([hashtable]$Hooks, [hashtable]$ManagedHooks, [string[]]$RetiredCommands = @())
     foreach ($eventName in $ManagedHooks.Keys) {
         $managedDefinitions = @($ManagedHooks[$eventName])
         $managedCommands = @($managedDefinitions | ForEach-Object { $_.command })
@@ -152,7 +152,8 @@ function Merge-ManagedHooks {
             }
             $remainingCommands = [System.Collections.Generic.List[object]]::new()
             foreach ($hook in @($entry.hooks)) {
-                if ($hook -is [System.Collections.IDictionary] -and $hook.Contains('command') -and $managedCommands -contains $hook.command) { continue }
+                if ($hook -is [System.Collections.IDictionary] -and $hook.Contains('command') -and
+                    ($managedCommands -contains $hook.command -or $RetiredCommands -contains $hook.command)) { continue }
                 $remainingCommands.Add($hook)
             }
             if ($remainingCommands.Count -gt 0) {
@@ -321,7 +322,13 @@ try {
     }
     if (-not $claudeSettings.Contains('hooks')) { $claudeSettings.hooks = [ordered]@{} }
     if ($claudeSettings.hooks -isnot [System.Collections.IDictionary]) { throw 'Claude settings.json property hooks must be an object.' }
-    $claudeSettings.hooks = Merge-ManagedHooks $claudeSettings.hooks $claudeManagedHooks
+    # Remove only commands emitted by the retired AIRules definitions. Preserve
+    # other commands, including user hooks sharing the same matcher or filename.
+    $claudeRetiredCommands = @(
+        "pwsh -NoProfile -File `"$claudeHome\hooks\workflow_gate.ps1`"",
+        "pwsh -NoProfile -File `"$claudeHome\hooks\require_agent_model.ps1`""
+    )
+    $claudeSettings.hooks = Merge-ManagedHooks $claudeSettings.hooks $claudeManagedHooks $claudeRetiredCommands
 
     $codexHooksPath = Join-Path $codexHome 'hooks.json'
     if (Test-Path -LiteralPath $codexHooksPath) {
@@ -331,7 +338,8 @@ try {
     }
     if (-not $codexHookDocument.Contains('hooks')) { $codexHookDocument.hooks = [ordered]@{} }
     if ($codexHookDocument.hooks -isnot [System.Collections.IDictionary]) { throw 'Codex hooks.json property hooks must be an object.' }
-    $codexHookDocument.hooks = Merge-ManagedHooks $codexHookDocument.hooks $codexManagedHooks
+    $codexRetiredCommands = @("pwsh -NoProfile -File `"$codexHome\hooks\workflow_gate.ps1`"")
+    $codexHookDocument.hooks = Merge-ManagedHooks $codexHookDocument.hooks $codexManagedHooks $codexRetiredCommands
     $sourceRules = @(Get-ChildItem -LiteralPath (Join-Path $repo 'Codex\airules') -Filter '*.md' -File | Sort-Object Name)
     if ($sourceRules.Count -eq 0) { throw 'No Codex/airules/*.md source files were found.' }
     $overrides = (Get-Content -Raw (Join-Path $repo 'Claude\skills\manifest.json') | ConvertFrom-Json).descriptionOverrides
@@ -450,28 +458,8 @@ try {
         }
     }
 
-    # Use Codex's own config writer against a staged CODEX_HOME. This changes only
-    # features.hooks and validates the existing TOML before any live file is replaced.
-    $codexConfigPath = Join-Path $codexHome 'config.toml'
-    $codexConfigStageHome = Join-Path $codexStage 'config-home'
-    Ensure-Directory $codexConfigStageHome
-    if (Test-Path -LiteralPath $codexConfigPath) {
-        Copy-Item -LiteralPath $codexConfigPath -Destination (Join-Path $codexConfigStageHome 'config.toml') -Force
-    }
-    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
-    if ($null -eq $codexCommand) { throw 'Codex CLI is required to validate config.toml and enable the stable hooks feature.' }
-    $previousCodexHome = $env:CODEX_HOME
-    try {
-        $env:CODEX_HOME = $codexConfigStageHome
-        & $codexCommand.Source features enable hooks | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Codex rejected staged config.toml while enabling hooks (exit $LASTEXITCODE)." }
-        & $codexCommand.Source features list | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Codex validation failed for staged config.toml (exit $LASTEXITCODE)." }
-    } finally {
-        $env:CODEX_HOME = $previousCodexHome
-    }
-    $stagedCodexConfig = Join-Path $codexConfigStageHome 'config.toml'
-    if (-not (Test-Path -LiteralPath $stagedCodexConfig -PathType Leaf)) { throw 'Codex did not produce staged config.toml.' }
+    # The selection gate is retired. Leave Codex config.toml and the user's
+    # hooks feature setting untouched; deploying rules no longer requires its CLI.
     foreach ($skill in $skills) {
         $destination = Join-Path $claudeStage "skills\$($skill.Name)\SKILL.md"
         $frontmatter = "---`r`nname: $(ConvertTo-YamlString $skill.Name)`r`ndescription: $(ConvertTo-YamlString $skill.Description)`r`n---`r`n"
@@ -533,9 +521,6 @@ try {
     Backup-Item $codexHooksPath 'codex-hooks.json'
     if (Test-Path -LiteralPath $codexHooksPath) { Remove-Item -LiteralPath $codexHooksPath -Force }
     Move-Item -LiteralPath (Join-Path $codexStage 'hooks.json') -Destination $codexHooksPath
-    Backup-Item $codexConfigPath 'codex-config.toml'
-    if (Test-Path -LiteralPath $codexConfigPath) { Remove-Item -LiteralPath $codexConfigPath -Force }
-    Move-Item -LiteralPath $stagedCodexConfig -Destination $codexConfigPath
     $oldClaudeAirules = Join-Path $claudeHome 'airules'
     if (Test-Path -LiteralPath $oldClaudeAirules) {
         $expected = [IO.Path]::GetFullPath($oldClaudeAirules).TrimEnd('\','/')

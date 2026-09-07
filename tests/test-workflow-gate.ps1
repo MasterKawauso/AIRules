@@ -6,8 +6,6 @@ $repo = Split-Path -Parent $PSScriptRoot
 $workflowHook = Join-Path $repo 'Codex\hooks\workflow_gate.ps1'
 $agentHook = Join-Path $repo 'Claude\hooks\require_agent_model.ps1'
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("airules-workflow-tests-" + [guid]::NewGuid().ToString('N'))
-$stateRoot = Join-Path $testRoot 'state'
-$env:AIRULES_WORKFLOW_STATE_ROOT = $stateRoot
 $passed = 0
 $failed = 0
 
@@ -57,434 +55,22 @@ function Invoke-Hook {
     }
 }
 
-function New-Payload {
-    param([string]$Session, [string]$Event, [string]$Prompt = '')
-    return @{
-        session_id = $Session
-        cwd = $testRoot
-        hook_event_name = $Event
-        prompt = $Prompt
-    }
-}
-
-function Get-Decision {
-    param([object]$Result)
-    if ($null -eq $Result.Json) { return '' }
-    if ($Result.Json.decision) { return [string]$Result.Json.decision }
-    return [string]$Result.Json.hookSpecificOutput.permissionDecision
-}
-
 try {
     New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
-    $minorSession = 'minor-session'
-    $minor = Invoke-Hook $workflowHook (New-Payload $minorSession 'UserPromptSubmit' 'README.mdの誤字を1箇所だけ修正してください。')
-    $minorTool = New-Payload $minorSession 'PreToolUse'
-    $minorTool.tool_name = 'Edit'
-    $minorTool.tool_input = @{ file_path = 'README.md' }
-    $minorEdit = Invoke-Hook $workflowHook $minorTool
-    Assert-True ($minor.Text -eq '' -and $minorEdit.Text -eq '') '対象と単一箇所が明確な局所修正は停止しない'
-
-    $minorWithTestSession = 'minor-with-test-session'
-    $minorWithTest = Invoke-Hook $workflowHook (New-Payload $minorWithTestSession 'UserPromptSubmit' 'Foo.csの既存メソッド内の比較演算子1箇所だけ修正し、FooTests.csの対応テストだけ更新してください。')
-    $minorWithTestTool = New-Payload $minorWithTestSession 'PreToolUse'
-    $minorWithTestTool.tool_name = 'Edit'
-    $minorWithTestTool.tool_input = @{ file_path = 'Foo.cs' }
-    $minorWithTestEdit = Invoke-Hook $workflowHook $minorWithTestTool
-    Assert-True ($minorWithTest.Text -eq '' -and $minorWithTestEdit.Text -eq '') '実装1ファイルと直接対応する既存テスト1つの局所修正は停止しない'
-
-    $claimedMinorSession = 'claimed-minor-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $claimedMinorSession 'UserPromptSubmit' 'Bug.csの軽微な修正です。簡単なのでそのまま修正してください。')
-    $claimedMinorTool = New-Payload $claimedMinorSession 'PreToolUse'
-    $claimedMinorTool.tool_name = 'Edit'
-    $claimedMinorTool.tool_input = @{ file_path = 'Bug.cs' }
-    $claimedMinorEdit = Invoke-Hook $workflowHook $claimedMinorTool
-    Assert-True ((Get-Decision $claimedMinorEdit) -eq 'deny') '軽微という自己申告だけでは停止を解除しない'
-
-    $minorPublicApiSession = 'minor-public-api-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $minorPublicApiSession 'UserPromptSubmit' 'Api.csのPublic APIにある比較演算子1箇所だけ修正してください。')
-    $minorPublicApiTool = New-Payload $minorPublicApiSession 'PreToolUse'
-    $minorPublicApiTool.tool_name = 'Edit'
-    $minorPublicApiTool.tool_input = @{ file_path = 'Api.cs' }
-    $minorPublicApiEdit = Invoke-Hook $workflowHook $minorPublicApiTool
-    Assert-True ((Get-Decision $minorPublicApiEdit) -eq 'deny') 'Public APIに触れる局所修正は軽微扱いしない'
-
-    $minorConfigSession = 'minor-config-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $minorConfigSession 'UserPromptSubmit' 'Settings.csの設定定数1箇所だけ変更してください。')
-    $minorConfigTool = New-Payload $minorConfigSession 'PreToolUse'
-    $minorConfigTool.tool_name = 'Edit'
-    $minorConfigTool.tool_input = @{ file_path = 'Settings.cs' }
-    $minorConfigEdit = Invoke-Hook $workflowHook $minorConfigTool
-    Assert-True ((Get-Decision $minorConfigEdit) -eq 'deny') '設定に触れる局所修正は軽微扱いしない'
-
-    $minorNewFileSession = 'minor-new-file-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $minorNewFileSession 'UserPromptSubmit' 'Helper.csを新規ファイルとして作り、条件式1箇所だけ追加してください。')
-    $minorNewFileTool = New-Payload $minorNewFileSession 'PreToolUse'
-    $minorNewFileTool.tool_name = 'Write'
-    $minorNewFileTool.tool_input = @{ file_path = 'Helper.cs' }
-    $minorNewFileWrite = Invoke-Hook $workflowHook $minorNewFileTool
-    Assert-True ((Get-Decision $minorNewFileWrite) -eq 'deny') '新規ファイルを伴う局所実装は軽微扱いしない'
-
-    $minorTwoFilesSession = 'minor-two-files-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $minorTwoFilesSession 'UserPromptSubmit' 'Foo.csとBar.csの条件式をそれぞれ1箇所だけ修正してください。')
-    $minorTwoFilesTool = New-Payload $minorTwoFilesSession 'PreToolUse'
-    $minorTwoFilesTool.tool_name = 'Edit'
-    $minorTwoFilesTool.tool_input = @{ file_path = 'Foo.cs' }
-    $minorTwoFilesEdit = Invoke-Hook $workflowHook $minorTwoFilesTool
-    Assert-True ((Get-Decision $minorTwoFilesEdit) -eq 'deny') '実装ファイル2つの局所修正は軽微扱いしない'
-
-    $researchSession = 'research-session'
-    $research = Invoke-Hook $workflowHook (New-Payload $researchSession 'UserPromptSubmit' 'Public API変更の影響を調査して説明してください。実装や設定変更はしません。')
-    $researchTool = New-Payload $researchSession 'PreToolUse'
-    $researchTool.tool_name = 'Write'
-    $researchTool.tool_input = @{ file_path = 'should-not-be-used.md' }
-    $researchWrite = Invoke-Hook $workflowHook $researchTool
-    Assert-True ($research.Text -eq '' -and $researchWrite.Text -eq '') '変更対象に言及する調査・説明だけの依頼は選択待ちにしない'
-
-    $questionSession = 'question-session'
-    $question = Invoke-Hook $workflowHook (New-Payload $questionSession 'UserPromptSubmit' 'このPublic APIは変更できる？ まず可否だけ回答して。')
-    $questionTool = New-Payload $questionSession 'PreToolUse'
-    $questionTool.tool_name = 'Write'
-    $questionTool.tool_input = @{ file_path = 'should-not-be-used.md' }
-    $questionWrite = Invoke-Hook $workflowHook $questionTool
-    Assert-True ($question.Text -eq '' -and $questionWrite.Text -eq '') '実装可否の質問回答だけなら選択待ちにしない'
-
-    $designQuestionSession = 'design-question-session'
-    $designQuestion = Invoke-Hook $workflowHook (New-Payload $designQuestionSession 'UserPromptSubmit' 'この機能に新しい状態遷移の設計は必要？ 理由だけ教えて。')
-    $designQuestionTool = New-Payload $designQuestionSession 'PreToolUse'
-    $designQuestionTool.tool_name = 'Write'
-    $designQuestionTool.tool_input = @{ file_path = 'should-not-be-used.md' }
-    $designQuestionWrite = Invoke-Hook $workflowHook $designQuestionTool
-    Assert-True ($designQuestion.Text -eq '' -and $designQuestionWrite.Text -eq '') '設計に言及する疑問への回答だけなら選択待ちにしない'
-
-    $embeddedRulesSession = 'embedded-rules-session'
-    $embeddedRulesPrompt = @'
-# AGENTS.md instructions
-<INSTRUCTIONS>
-Public API、データ構造、設計、実装、レビューではモデルを選択する。
-</INSTRUCTIONS>
-<environment_context>
-  <cwd>D:\AIRules\AIRules</cwd>
-</environment_context>
-deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ 質問への回答だけお願いします。
-'@
-    $embeddedRules = Invoke-Hook $workflowHook (New-Payload $embeddedRulesSession 'UserPromptSubmit' $embeddedRulesPrompt)
-    $embeddedRulesTool = New-Payload $embeddedRulesSession 'PreToolUse'
-    $embeddedRulesTool.tool_name = 'Write'
-    $embeddedRulesTool.tool_input = @{ file_path = 'should-not-be-used.md' }
-    $embeddedRulesWrite = Invoke-Hook $workflowHook $embeddedRulesTool
-    Assert-True ($embeddedRules.Text -eq '' -and $embeddedRulesWrite.Text -eq '') '添付されたAGENTS指示本文を現在の作業依頼として分類しない'
-
-    $designSession = 'design-session'
-    $design = Invoke-Hook $workflowHook (New-Payload $designSession 'UserPromptSubmit' '状態データ、公開API、UIをまたぐ機能を設計して実装してください。責務分割と依存方向も決めてください。')
-    $designTool = New-Payload $designSession 'PreToolUse'
-    $designTool.tool_name = 'Write'
-    $designTool.tool_input = @{ file_path = 'src/new.cs' }
-    $designWrite = Invoke-Hook $workflowHook $designTool
-    Assert-True ((Get-Decision $designWrite) -eq 'deny') '設計を伴う複数責務の実装は未選択なら停止する'
-
-    $singleDesignSession = 'single-design-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $singleDesignSession 'UserPromptSubmit' '既存責務と依存方向を決める設計を行い、サービスを実装してください。')
-    $singleDesignTool = New-Payload $singleDesignSession 'PreToolUse'
-    $singleDesignTool.tool_name = 'Write'
-    $singleDesignTool.tool_input = @{ file_path = 'service.cs' }
-    $singleDesignWrite = Invoke-Hook $workflowHook $singleDesignTool
-    Assert-True ((Get-Decision $singleDesignWrite) -eq 'deny') '設計判断を含む変更は単一責務でも未選択なら停止する'
-
-    $designOnlySession = 'design-only-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $designOnlySession 'UserPromptSubmit' 'Public APIを設計してください。')
-    $designOnlyTool = New-Payload $designOnlySession 'PreToolUse'
-    $designOnlyTool.tool_name = 'Write'
-    $designOnlyTool.tool_input = @{ file_path = 'api-design.md' }
-    $designOnlyWrite = Invoke-Hook $workflowHook $designOnlyTool
-    Assert-True ($designOnlyWrite.Text -eq '') 'コード変更を伴わない設計だけの依頼は停止しない'
-
-    $reviewOnlySession = 'review-only-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $reviewOnlySession 'UserPromptSubmit' '現在の差分をレビューしてください。変更はしないでください。')
-    $reviewOnlyTool = New-Payload $reviewOnlySession 'PreToolUse'
-    $reviewOnlyTool.tool_name = 'Write'
-    $reviewOnlyTool.tool_input = @{ file_path = 'review.md' }
-    $reviewOnlyWrite = Invoke-Hook $workflowHook $reviewOnlyTool
-    Assert-True ($reviewOnlyWrite.Text -eq '') 'コード変更を伴わないレビューだけの依頼は停止しない'
-
-    $diffCheckSession = 'diff-check-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $diffCheckSession 'UserPromptSubmit' '現在のコード差分を確認してください。問題点を報告してください。')
-    $diffCheckTool = New-Payload $diffCheckSession 'PreToolUse'
-    $diffCheckTool.tool_name = 'Agent'
-    $diffCheckTool.tool_input = @{ subagent_type = 'code-reviewer'; model = 'gpt-5.6-sol' }
-    $diffCheckAgent = Invoke-Hook $workflowHook $diffCheckTool
-    Assert-True ($diffCheckAgent.Text -eq '') 'コード変更を伴わない差分確認は停止しない'
-
-    $delegateOnlySession = 'delegate-only-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $delegateOnlySession 'UserPromptSubmit' 'Claudeへレビューを委譲してください。')
-    $delegateOnlyTool = New-Payload $delegateOnlySession 'PreToolUse'
-    $delegateOnlyTool.tool_name = 'Agent'
-    $delegateOnlyTool.tool_input = @{ subagent_type = 'code-reviewer'; model = 'sonnet' }
-    $delegateOnlyAgent = Invoke-Hook $workflowHook $delegateOnlyTool
-    Assert-True ($delegateOnlyAgent.Text -eq '') '実装を伴わないレビュー委譲は停止しない'
-
-    $reviewFixSession = 'review-fix-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $reviewFixSession 'UserPromptSubmit' '現在の差分をレビューし、問題があれば修正してください。')
-    $reviewFixTool = New-Payload $reviewFixSession 'PreToolUse'
-    $reviewFixTool.tool_name = 'Edit'
-    $reviewFixTool.tool_input = @{ file_path = 'Api.cs' }
-    $reviewFixEdit = Invoke-Hook $workflowHook $reviewFixTool
-    Assert-True ((Get-Decision $reviewFixEdit) -eq 'deny') 'レビュー後のコード修正まで含む依頼は未選択なら停止する'
-
-    $noCodingSession = 'no-coding-session'
-    $noCoding = Invoke-Hook $workflowHook (New-Payload $noCodingSession 'UserPromptSubmit' 'コーディングを伴わない相談です。設計とレビューの進め方を説明してください。')
-    $noCodingTool = New-Payload $noCodingSession 'PreToolUse'
-    $noCodingTool.tool_name = 'Write'
-    $noCodingTool.tool_input = @{ file_path = 'should-not-be-used.md' }
-    $noCodingWrite = Invoke-Hook $workflowHook $noCodingTool
-    Assert-True ($noCoding.Text -eq '' -and $noCodingWrite.Text -eq '') 'コーディングを伴わない相談・設計・レビューは停止しない'
-
-    $implementationConsultSession = 'implementation-consult-session'
-    $implementationConsult = Invoke-Hook $workflowHook (New-Payload $implementationConsultSession 'UserPromptSubmit' 'この機能の実装について相談したい。選択肢を説明して。')
-    $implementationConsultTool = New-Payload $implementationConsultSession 'PreToolUse'
-    $implementationConsultTool.tool_name = 'Write'
-    $implementationConsultTool.tool_input = @{ file_path = 'should-not-be-used.md' }
-    $implementationConsultWrite = Invoke-Hook $workflowHook $implementationConsultTool
-    Assert-True ($implementationConsult.Text -eq '' -and $implementationConsultWrite.Text -eq '') '実装という語を含む相談だけでは停止しない'
-
-    $documentationSession = 'documentation-session'
-    $documentation = Invoke-Hook $workflowHook (New-Payload $documentationSession 'UserPromptSubmit' 'WORKFLOW.mdを意味を保って修正してください。')
-    $documentationTool = New-Payload $documentationSession 'PreToolUse'
-    $documentationTool.tool_name = 'Edit'
-    $documentationTool.tool_input = @{ file_path = 'WORKFLOW.md' }
-    $documentationEdit = Invoke-Hook $workflowHook $documentationTool
-    Assert-True ($documentation.Text -eq '' -and $documentationEdit.Text -eq '') '文書だけの変更は停止しない'
-
-    $mixedCodeAndDocumentationSession = 'mixed-code-documentation-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $mixedCodeAndDocumentationSession 'UserPromptSubmit' 'README.mdとApi.csを変更してください。')
-    $mixedCodeAndDocumentationTool = New-Payload $mixedCodeAndDocumentationSession 'PreToolUse'
-    $mixedCodeAndDocumentationTool.tool_name = 'Edit'
-    $mixedCodeAndDocumentationTool.tool_input = @{ file_path = 'Api.cs' }
-    $mixedCodeAndDocumentationEdit = Invoke-Hook $workflowHook $mixedCodeAndDocumentationTool
-    Assert-True ((Get-Decision $mixedCodeAndDocumentationEdit) -eq 'deny') '文書とコードを含む変更は未選択なら停止する'
-
-    $terseImplementationSession = 'terse-implementation-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $terseImplementationSession 'UserPromptSubmit' 'Public API変更')
-    $terseImplementationTool = New-Payload $terseImplementationSession 'PreToolUse'
-    $terseImplementationTool.tool_name = 'Edit'
-    $terseImplementationTool.tool_input = @{ file_path = 'Api.cs' }
-    $terseImplementationEdit = Invoke-Hook $workflowHook $terseImplementationTool
-    Assert-True ((Get-Decision $terseImplementationEdit) -eq 'deny') '短い実変更指示は未選択なら停止する'
-
-    $multiSession = 'multi-responsibility-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $multiSession 'UserPromptSubmit' 'API、保存データ、UIをまとめて変更してください。')
-    $multiTool = New-Payload $multiSession 'PreToolUse'
-    $multiTool.tool_name = 'Edit'
-    $multiTool.tool_input = @{ file_path = 'feature.cs' }
-    $multiEdit = Invoke-Hook $workflowHook $multiTool
-    Assert-True ((Get-Decision $multiEdit) -eq 'deny') '複数責務変更は設計という語がなくても未選択なら停止する'
-
-    $publicSession = 'public-api-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $publicSession 'UserPromptSubmit' 'Public APIを変更して呼び出し側も修正してください。')
-    $publicTool = New-Payload $publicSession 'PreToolUse'
-    $publicTool.tool_name = 'Edit'
-    $publicTool.tool_input = @{ file_path = 'api.cs' }
-    $publicEdit = Invoke-Hook $workflowHook $publicTool
-    Assert-True ((Get-Decision $publicEdit) -eq 'deny') 'Public API変更は未選択なら停止する'
-
-    $selectedSession = 'selected-session'
-    $selected = Invoke-Hook $workflowHook (New-Payload $selectedSession 'UserPromptSubmit' '担当AI=Codex、model=gpt-5.6-sol、reasoning_effort=highでPublic APIを変更してください。')
-    $selectedTool = New-Payload $selectedSession 'PreToolUse'
-    $selectedTool.tool_name = 'Edit'
-    $selectedTool.tool_input = @{ file_path = 'api.cs' }
-    $selectedEdit = Invoke-Hook $workflowHook $selectedTool
-    Assert-True ($selected.Text -eq '' -and $selectedEdit.Text -eq '') '担当・モデル・思考深度が指定済みなら停止しない'
-
-    $answerSession = 'answer-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $answerSession 'UserPromptSubmit' 'API、データ、UIをまたぐ設計実装をしてください。')
-    $prematureAnswer = Invoke-Hook $workflowHook (New-Payload $answerSession 'UserPromptSubmit' 'OK')
-    $prematureTool = New-Payload $answerSession 'PreToolUse'
-    $prematureTool.tool_name = 'Write'
-    $prematureTool.tool_input = @{ file_path = 'feature.cs' }
-    $prematureWrite = Invoke-Hook $workflowHook $prematureTool
-    Assert-True ((Get-Decision $prematureWrite) -eq 'deny') '推奨案提示前の短い承認語では選択済みにしない'
-
-    $recommendationStop = New-Payload $answerSession 'Stop'
-    $recommendationStop.last_assistant_message = @'
-現在のモデルはgpt-5.6-sol、思考深度はmediumです。
-1. （推奨）担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Workerなし。品質: 高、費用: 中、時間: 中。
-2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: medium、Workerなし。品質: 十分、費用: 低、時間: 短。
-「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
-'@
-    $null = Invoke-Hook $workflowHook $recommendationStop
-    $answer = Invoke-Hook $workflowHook (New-Payload $answerSession 'UserPromptSubmit' '推奨案で進めてください。')
-    $answerTool = New-Payload $answerSession 'PreToolUse'
-    $answerTool.tool_name = 'Write'
-    $answerTool.tool_input = @{ file_path = 'feature.cs' }
-    $answerWrite = Invoke-Hook $workflowHook $answerTool
-    Assert-True ($answer.Text -eq '' -and $answerWrite.Text -eq '') '同一会話で回答済みなら再確認しない'
-
-    $numericAnswerSession = 'numeric-answer-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $numericAnswerSession 'UserPromptSubmit' 'API、データ、UIをまたぐ設計実装をしてください。')
-    $numericRecommendation = New-Payload $numericAnswerSession 'Stop'
-    $numericRecommendation.last_assistant_message = @'
-現在のモデルはgpt-5.6-sol、思考深度はmediumです。
-1. （推奨）担当AI: Codex、モデル: gpt-5.6-terra、思考深度: medium、Worker: gpt-5.6-terra / medium。品質: 十分、費用: 低、時間: 短。
-2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Worker: gpt-5.6-sol / high。品質: 高、費用: 高、時間: 長。
-「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
-'@
-    $null = Invoke-Hook $workflowHook $numericRecommendation
-    $numericAnswer = Invoke-Hook $workflowHook (New-Payload $numericAnswerSession 'UserPromptSubmit' '2')
-    $numericTool = New-Payload $numericAnswerSession 'PreToolUse'
-    $numericTool.tool_name = 'Edit'
-    $numericTool.tool_input = @{ file_path = 'numeric.cs' }
-    $numericEdit = Invoke-Hook $workflowHook $numericTool
-    Assert-True ($numericAnswer.Text -eq '' -and $numericEdit.Text -eq '') '番号だけの回答を選択済みとして扱う'
-
-    $recommendedAnswerSession = 'recommended-answer-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $recommendedAnswerSession 'UserPromptSubmit' 'API、データ、UIをまたぐ設計実装をしてください。')
-    $recommendedRecommendation = New-Payload $recommendedAnswerSession 'Stop'
-    $recommendedRecommendation.last_assistant_message = $numericRecommendation.last_assistant_message
-    $null = Invoke-Hook $workflowHook $recommendedRecommendation
-    $recommendedAnswer = Invoke-Hook $workflowHook (New-Payload $recommendedAnswerSession 'UserPromptSubmit' '推奨')
-    $recommendedTool = New-Payload $recommendedAnswerSession 'PreToolUse'
-    $recommendedTool.tool_name = 'Edit'
-    $recommendedTool.tool_input = @{ file_path = 'recommended.cs' }
-    $recommendedEdit = Invoke-Hook $workflowHook $recommendedTool
-    Assert-True ($recommendedAnswer.Text -eq '' -and $recommendedEdit.Text -eq '') '「推奨」だけの回答を1番の選択として扱う'
-
-    $naturalAnswerSession = 'natural-answer-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $naturalAnswerSession 'UserPromptSubmit' 'Api.csを修正してください。')
-    $naturalRecommendation = New-Payload $naturalAnswerSession 'Stop'
-    $naturalRecommendation.last_assistant_message = @'
-現在のモデルはgpt-5.6-sol、思考深度はmediumです。
-1. （推奨）担当AI: Codex、モデル: gpt-5.6-sol、思考深度: medium、Sub Agentなし。品質: 十分、費用: 低、時間: 短。
-2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Sub Agentなし。品質: 高、費用: 中、時間: 中。
-「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
-'@
-    $null = Invoke-Hook $workflowHook $naturalRecommendation
-    $naturalAnswer = Invoke-Hook $workflowHook (New-Payload $naturalAnswerSession 'UserPromptSubmit' 'よい')
-    $naturalAnswerTool = New-Payload $naturalAnswerSession 'PreToolUse'
-    $naturalAnswerTool.tool_name = 'Edit'
-    $naturalAnswerTool.tool_input = @{ file_path = 'Api.cs' }
-    $naturalAnswerEdit = Invoke-Hook $workflowHook $naturalAnswerTool
-    Assert-True ($naturalAnswer.Text -eq '' -and $naturalAnswerEdit.Text -eq '') '推奨提示後の自然な短文承認を選択済みとして扱う'
-
-    $currentModelSession = 'current-model-session'
-    $currentModel = Invoke-Hook $workflowHook (New-Payload $currentModelSession 'UserPromptSubmit' '今のモデルでそのまま修正を進めて。')
-    $currentModelTool = New-Payload $currentModelSession 'PreToolUse'
-    $currentModelTool.tool_name = 'Edit'
-    $currentModelTool.tool_input = @{ file_path = 'Api.cs' }
-    $currentModelEdit = Invoke-Hook $workflowHook $currentModelTool
-    Assert-True ($currentModel.Text -eq '' -and $currentModelEdit.Text -eq '') '現在モデルでの続行指示を定型文なしで選択済みとして扱う'
-
-    $flowReview = Invoke-Hook $workflowHook (New-Payload $answerSession 'UserPromptSubmit' '実装が終わったので、そのまま差分をレビューしてください。')
-    $flowReviewTool = New-Payload $answerSession 'PreToolUse'
-    $flowReviewTool.tool_name = 'Agent'
-    $flowReviewTool.tool_input = @{ subagent_type = 'code-reviewer'; model = 'gpt-5.6-sol' }
-    $flowReviewAgent = Invoke-Hook $workflowHook $flowReviewTool
-    Assert-True ($flowReview.Text -eq '' -and $flowReviewAgent.Text -eq '') '同じ作業の設計・実装・レビューでは選択を一度だけ再利用する'
-
-    $pausedSession = 'paused-pending-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $pausedSession 'UserPromptSubmit' 'Api.csを修正してください。')
-    $pendingReadTool = New-Payload $pausedSession 'PreToolUse'
-    $pendingReadTool.tool_name = 'mcp__node_repl__js'
-    $pendingReadTool.tool_input = 'const scene = await tools.mcp__unityMCP__get_scene_info({}); text(scene);'
-    $pendingRead = Invoke-Hook $workflowHook $pendingReadTool
-    Assert-True ($pendingRead.Text -eq '') '選択待ちでも変更を含まないNode REPL読取コードは通す'
-
-    $pausedPrompt = Invoke-Hook $workflowHook (New-Payload $pausedSession 'UserPromptSubmit' 'ところで、この機能の用途を説明して。')
-    $pausedTool = New-Payload $pausedSession 'PreToolUse'
-    $pausedTool.tool_name = 'Write'
-    $pausedTool.tool_input = @{ file_path = 'should-not-be-used.md' }
-    $pausedWrite = Invoke-Hook $workflowHook $pausedTool
-    $pausedStop = New-Payload $pausedSession 'Stop'
-    $pausedStop.last_assistant_message = '用途を説明します。'
-    $pausedStopResult = Invoke-Hook $workflowHook $pausedStop
-    Assert-True ($pausedPrompt.Text -eq '' -and $pausedWrite.Text -eq '' -and (Get-Decision $pausedStopResult) -eq '') '選択待ちを途中の質問・説明へ持ち越して強制しない'
-
-    $resumedPrompt = Invoke-Hook $workflowHook (New-Payload $pausedSession 'UserPromptSubmit' 'ではApi.csを修正してください。')
-    $resumedTool = New-Payload $pausedSession 'PreToolUse'
-    $resumedTool.tool_name = 'Edit'
-    $resumedTool.tool_input = @{ file_path = 'Api.cs' }
-    $resumedEdit = Invoke-Hook $workflowHook $resumedTool
-    Assert-True ((Get-Decision $resumedEdit) -eq 'deny') '実作業へ戻った時だけ選択待ちを再開する'
-
-    $pendingMutationTool = New-Payload $pausedSession 'PreToolUse'
-    $pendingMutationTool.tool_name = 'mcp__node_repl__js'
-    $pendingMutationTool.tool_input = @{ code = 'await fs.promises.writeFile("Api.cs", "changed");' }
-    $pendingMutation = Invoke-Hook $workflowHook $pendingMutationTool
-    Assert-True ((Get-Decision $pendingMutation) -eq 'deny') 'Node REPLの変更コードは選択待ちなら停止する'
-
-    $legacySession = 'legacy-state-session'
-    $legacyBytes = [Text.Encoding]::UTF8.GetBytes($legacySession)
-    $legacyHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData($legacyBytes)).Replace('-', '').ToLowerInvariant()
-    New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
-    [IO.File]::WriteAllText((Join-Path $stateRoot "$legacyHash.json"), (@{
-        schemaVersion = 2
-        sessionId = $legacySession
-        cwd = $testRoot
-        status = 'pending'
-        reasons = @('実装・修正')
-    } | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
-    $legacyTool = New-Payload $legacySession 'PreToolUse'
-    $legacyTool.tool_name = 'Write'
-    $legacyTool.tool_input = @{ file_path = 'legacy.md' }
-    $legacyWrite = Invoke-Hook $workflowHook $legacyTool
-    Assert-True ($legacyWrite.Text -eq '') '旧schema 2のpending状態を無効化する'
-
-    $currentSession = 'current-ai-session'
-    $current = Invoke-Hook $workflowHook (New-Payload $currentSession 'UserPromptSubmit' '現在起動中のAIでそのままPublic API変更を進めて構いません。ここでは確認待ちにしないでください。')
-    $currentTool = New-Payload $currentSession 'PreToolUse'
-    $currentTool.tool_name = 'Edit'
-    $currentTool.tool_input = @{ file_path = 'api.cs' }
-    $currentEdit = Invoke-Hook $workflowHook $currentTool
-    Assert-True ($current.Text -eq '' -and $currentEdit.Text -eq '') '現在のAIで確認不要という明示を選択済みとして扱う'
-
-    $newWorkSession = 'new-work-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $newWorkSession 'UserPromptSubmit' '担当AI=Codex、model=gpt-5.6-sol、reasoning_effort=highでPublic APIを変更してください。')
-    $null = Invoke-Hook $workflowHook (New-Payload $newWorkSession 'UserPromptSubmit' '別件です。APIとUIをまたぐ設計実装をしてください。')
-    $newWorkTool = New-Payload $newWorkSession 'PreToolUse'
-    $newWorkTool.tool_name = 'Write'
-    $newWorkTool.tool_input = @{ file_path = 'other.cs' }
-    $newWorkWrite = Invoke-Hook $workflowHook $newWorkTool
-    Assert-True ((Get-Decision $newWorkWrite) -eq 'deny') '同じ会話でも明示された別作業では選択をリセットする'
-
-    $planPath = Join-Path $testRoot 'PLAN.md'
-    [IO.File]::WriteAllText($planPath, 'AIRULES_WORKFLOW_SELECTION: owner=Codex; model=gpt-5.6-sol; thinking=medium; scope=認証API移行', [Text.UTF8Encoding]::new($false))
-    $planSession = 'plan-session'
-    $plan = Invoke-Hook $workflowHook (New-Payload $planSession 'UserPromptSubmit' 'PLAN.mdの作業を再開し、Public APIを変更してください。')
-    $planTool = New-Payload $planSession 'PreToolUse'
-    $planTool.tool_name = 'Edit'
-    $planTool.tool_input = @{ file_path = 'auth.cs' }
-    $planEdit = Invoke-Hook $workflowHook $planTool
-    Assert-True ($plan.Text -eq '' -and $planEdit.Text -eq '') 'PLAN.mdの有効な選択を再利用する'
-
-    $readAgent = New-Payload $publicSession 'PreToolUse'
-    $readAgent.tool_name = 'Agent'
-    $readAgent.tool_input = @{ subagent_type = 'Explore' }
-    $explore = Invoke-Hook $workflowHook $readAgent
-    Assert-True ($explore.Text -eq '') 'Explore読取専用Agentはworkflow gateで妨げない'
-
-    $missingModel = Invoke-Hook $agentHook @{ tool_name = 'Agent'; tool_input = @{ subagent_type = 'general-purpose' } }
-    $withModel = Invoke-Hook $agentHook @{ tool_name = 'Agent'; tool_input = @{ subagent_type = 'general-purpose'; model = 'sonnet' } }
-    $exploreModel = Invoke-Hook $agentHook @{ tool_name = 'Agent'; tool_input = @{ subagent_type = 'Explore' } }
-    Assert-True ((Get-Decision $missingModel) -eq 'deny') 'model未指定Sub Agentは従来どおり拒否する'
-    Assert-True ((Get-Decision $withModel) -eq 'allow') 'model指定済みSub Agentは許可する'
-    Assert-True ((Get-Decision $exploreModel) -eq 'allow') 'require_agent_modelもExploreを許可する'
-
-    $stopSession = 'stop-session'
-    $null = Invoke-Hook $workflowHook (New-Payload $stopSession 'UserPromptSubmit' 'APIとUIをまたぐ設計実装をしてください。')
-    $badStop = New-Payload $stopSession 'Stop'
-    $badStop.last_assistant_message = '実装を開始します。'
-    $badStopResult = Invoke-Hook $workflowHook $badStop
-    $unnumberedStop = New-Payload $stopSession 'Stop'
-    $unnumberedStop.last_assistant_message = '現在のモデルはgpt-5.6-sol、思考深度はmediumです。担当AIはCodex、モデルはgpt-5.6-sol、思考深度はhigh、Sub Agentなしを推奨します。品質は高い一方、費用と所要時間が増えます。この選択でよいですか。回答を待ちます。'
-    $unnumberedStopResult = Invoke-Hook $workflowHook $unnumberedStop
-    $goodStop = New-Payload $stopSession 'Stop'
-    $goodStop.last_assistant_message = @'
-現在のモデルはgpt-5.6-sol、思考深度はmediumです。
-1. （推奨）担当AI: Codex、モデル: gpt-5.6-sol、思考深度: high、Workerなし。品質: 高、費用: 中、時間: 中。
-2. 担当AI: Codex、モデル: gpt-5.6-sol、思考深度: medium、Workerなし。品質: 十分、費用: 低、時間: 短。
-「推奨」または 1 / 2 だけで回答してください。選択を待ちます。
-'@
-    $goodStopResult = Invoke-Hook $workflowHook $goodStop
-    Assert-True ((Get-Decision $badStopResult) -eq 'block' -and (Get-Decision $unnumberedStopResult) -eq 'block' -and (Get-Decision $goodStopResult) -eq '') 'Stopは推奨提示漏れと番号なし候補を差し戻し、番号付き確認応答を通す'
+    foreach ($hookPath in @($workflowHook, $agentHook)) {
+        foreach ($eventName in @('UserPromptSubmit', 'PreToolUse', 'Stop')) {
+            $result = Invoke-Hook $hookPath @{
+                session_id = 'old-pending-session'
+                cwd = $testRoot
+                hook_event_name = $eventName
+                prompt = 'APIとデータ構造を変更して実装して'
+                tool_name = 'Agent'
+                tool_input = @{ subagent_type = 'general-purpose'; prompt = '実装して' }
+            }
+            Assert-True ($result.ExitCode -eq 0 -and $result.Text -eq '') "$([IO.Path]::GetFileName($hookPath)) / $eventName はモデル選択・権限判断へ介入しない"
+        }
+    }
 
     $testHome = Join-Path $testRoot 'home'
     $backup = Join-Path $testRoot 'backup'
@@ -520,6 +106,30 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
 '@, [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $testHome '.codex\config.toml'), "[features]`r`nhooks = false`r`n", [Text.UTF8Encoding]::new($false))
 
+    # Seed the previous release's registrations, sharing entries with user hooks.
+    # A similarly named command outside the managed path must also survive.
+    foreach ($client in @('claude', 'codex')) {
+        $clientHome = Join-Path $testHome ".$client"
+        New-Item -ItemType Directory -Path (Join-Path $clientHome 'hooks') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $clientHome 'hooks\workflow_gate.ps1'),
+            "# AIRULES-MANAGED-HOOK schema=1 source=Codex/hooks/workflow_gate.ps1`nthrow 'old gate'`n", [Text.UTF8Encoding]::new($false))
+        $configPath = Join-Path $clientHome $(if ($client -eq 'claude') { 'settings.json' } else { 'hooks.json' })
+        $document = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -AsHashtable
+        foreach ($eventName in @('PreToolUse', 'UserPromptSubmit', 'Stop')) {
+            $commands = @(
+                @{ type = 'command'; command = "pwsh -NoProfile -File `"$clientHome\hooks\workflow_gate.ps1`"" },
+                @{ type = 'command'; command = "user-$eventName-hook" },
+                @{ type = 'command'; command = 'pwsh -NoProfile -File "D:\user-hooks\workflow_gate.ps1"' }
+            )
+            if ($client -eq 'claude' -and $eventName -eq 'PreToolUse') {
+                $commands += @{ type = 'command'; command = "pwsh -NoProfile -File `"$clientHome\hooks\require_agent_model.ps1`"" }
+            }
+            if (-not $document.hooks.ContainsKey($eventName)) { $document.hooks[$eventName] = @() }
+            $document.hooks[$eventName] += @{ matcher = 'Agent|Bash'; hooks = $commands }
+        }
+        [IO.File]::WriteAllText($configPath, ($document | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+    }
+
     & (Join-Path $repo 'deploy.ps1') -HomeDirectory $testHome -BackupDirectory $backup | Out-Null
     $firstExit = $LASTEXITCODE
     $claudeSettings = Get-Content (Join-Path $testHome '.claude\settings.json') -Raw | ConvertFrom-Json
@@ -529,8 +139,23 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
         (@($claudeSettings.hooks.PreToolUse.hooks.command) -contains 'user-owned-hook --check' -or
          @($claudeSettings.hooks.PreToolUse | ForEach-Object { $_.hooks.command }) -contains 'user-owned-hook --check') -and
         @($codexHooks.hooks.SessionStart | ForEach-Object { $_.hooks.command }) -contains 'user-session-hook' -and
-        $configText -match '(?m)^hooks\s*=\s*true\s*$'
-    Assert-True ($firstExit -eq 0 -and $preserved) 'AIRules管理外の既存設定・Hookを保持しCodex hooksを有効化する'
+        $configText -eq "[features]`r`nhooks = false`r`n"
+    Assert-True ($firstExit -eq 0 -and $preserved) 'AIRules管理外の既存設定・HookとCodex config.tomlを保持する'
+
+    foreach ($document in @($claudeSettings, $codexHooks)) {
+        foreach ($eventName in @('PreToolUse', 'UserPromptSubmit', 'Stop')) {
+            $commands = @($document.hooks.$eventName | ForEach-Object { $_.hooks.command })
+            $retired = @($commands | Where-Object { $_ -like "*$testHome*workflow_gate.ps1*" -or $_ -like "*$testHome*require_agent_model.ps1*" })
+            Assert-True ($retired.Count -eq 0 -and $commands -contains "user-$eventName-hook" -and
+                $commands -contains 'pwsh -NoProfile -File "D:\user-hooks\workflow_gate.ps1"') "$eventName の旧登録だけ解除し同居・同名ユーザーHookを保持する"
+        }
+    }
+    Assert-True (@($claudeSettings.hooks.UserPromptSubmit | ForEach-Object { $_.hooks.command }) -contains
+        "powershell -File `"$testHome\.claude\hooks\read_progress.ps1`"") 'Claudeの進捗Hookは継続する'
+    $deployedHook = Invoke-Hook (Join-Path $testHome '.codex\hooks\workflow_gate.ps1') @{ hook_event_name = 'PreToolUse'; tool_name = 'Agent' }
+    $oldHookBackups = @(Get-ChildItem -LiteralPath $backup -Recurse -Filter '*hooks-workflow_gate.ps1' -File)
+    Assert-True ($deployedHook.ExitCode -eq 0 -and $deployedHook.Text -eq '' -and $oldHookBackups.Count -eq 2 -and
+        @($oldHookBackups | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match "throw 'old gate'" }).Count -eq 2) '旧Hook本体はバックアップ後に無動作化し残存セッションからの呼出も通る'
 
     $tracked = @(
         (Join-Path $testHome '.claude\settings.json'),
@@ -549,6 +174,13 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
         if ($before[$path] -ne (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash) { $same = $false }
     }
     Assert-True ($secondExit -eq 0 -and $same) '配備を2回実行しても管理対象の結果が変わらない'
+
+    $freshHome = Join-Path $testRoot 'fresh-home'
+    & (Join-Path $repo 'deploy.ps1') -HomeDirectory $freshHome -BackupDirectory (Join-Path $testRoot 'fresh-backup') | Out-Null
+    $freshExit = $LASTEXITCODE
+    $freshHooks = Get-Content -LiteralPath (Join-Path $freshHome '.codex\hooks.json') -Raw | ConvertFrom-Json
+    Assert-True ($freshExit -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $freshHome '.codex\config.toml')) -and
+        @($freshHooks.hooks.PreToolUse).Count -eq 0 -and @($freshHooks.hooks.Stop).Count -eq 0) '新規配備でも選択ゲートとCodex設定を作成しない'
 
     $lockedHookPath = Join-Path $testHome '.claude\hooks\workflow_gate.ps1'
     $beforeLocked = @{}
@@ -606,7 +238,6 @@ deploy.ps1を実行するとCodex Hookもグローバルへ配備される？ �
     $malformed = Invoke-Hook $workflowHook @{}
     Assert-True ($malformed.ExitCode -eq 0 -and $malformed.Text -eq '') '想定外payloadはfail openで通常作業を破壊しない'
 } finally {
-    Remove-Item Env:AIRULES_WORKFLOW_STATE_ROOT -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $testRoot) {
         $resolved = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $testRoot).Path)
         $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
