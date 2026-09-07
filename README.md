@@ -17,7 +17,7 @@ Claude/                   Claude固有物と変換定義
   agents/                 要件・設計・コードReviewer
   output-styles/          出力Style
   hooks/                  Claude固有Hook
-Codex/hooks/              両AIへ配備する共通workflow gate
+Codex/hooks/              旧Hook呼出用の無動作互換ファイル
 Codex/settings-hooks.json Codex Hook登録定義
 deploy.ps1                AIRulesの配備
 installMCPElse.ps1        PM Skills・Unity CLI・UnityMCP・BlenderMCPの導入
@@ -37,11 +37,13 @@ INSTALL.md / PROGRESS.md  Setup / 履歴
 
 AIは配備先を読む。リポジトリ移動・改名後は、生成ヘッダーの正本パス更新のため新しい場所で再配備する。
 
-`workflow_gate.ps1`は、コード・ファイルを変更しない調査・質問回答・説明・設計・レビュー・差分確認と、対象ファイル・単一箇所・局所変更・禁止境界なしを依頼文から確認できる軽微な実装を除外し、実装・修正・実装委譲を行う作業で担当AI・モデル・思考深度が未選択なら変更ツールと実装委譲を停止する。「軽微」という自己申告だけでは除外しない。Codexは実行環境がセッションへ明示した現在設定を示し、推奨を1番にした2〜3個の番号付き候補として担当・モデル・思考深度、Worker使用有無、品質・費用・時間差を提示する。`config.toml`等の既定値やWorker起動時の指定値は現在値の根拠にせず、取得不能な項目は推測で補わない。ユーザーは「推奨」または`1`〜`3`だけで選択でき、「はい」「よい」「それで」「進めて」等の通常の承認も受理する。Codexで選択モデルまたは思考深度が親と異なる場合は、指定値のWorker起動を必須とし、親が切り替わったとは扱わない。選択待ちは現在の実変更依頼だけで強制し、途中の質問・説明・設計・レビュー・雑談やNode REPLによる読取調査では休止する。同じ作業単位の設計からレビューまでは同じ会話または承認済み`PLAN.md`/`SESSION.md`の選択を再利用する。
+通常は現在のAI・モデルで依頼を完了まで進める。担当・モデル・思考深度の毎回選択は行わず、確認は未承認の破壊的操作・権限拡張・外部影響・実質的な範囲変更・仕様を左右する未決事項に限定する。検証は変更の影響とリスクに合わせ、Sub Agentは独立作業で時間・品質に明確な利点がある場合だけ使う。
+
+旧選択ゲートとモデル強制Hookの登録は再配備時に解除する。旧セッションが保持する呼出に備えて無動作の互換ファイルを残し、実行環境の権限・承認判断には介入しない。旧選択状態や`AIRULES_WORKFLOW_SELECTION`記録は参照しない。
 
 ## Codexへの配備
 
-`Codex/AGENTS.md`と`Codex/airules/*.md`をそのまま`~/.codex/`へ配備する。Codexは`AGENTS.md`の条件付きルール表を見て、必要な`airules/`の文書だけを読む。配備時は既存`~/.codex/hooks.json`を保持マージし、Codex CLI自身で`features.hooks=true`を安全に有効化する。変更されたユーザーHookはCodexの`/hooks`で信頼確認が必要になる。
+`Codex/AGENTS.md`と`Codex/airules/*.md`をそのまま`~/.codex/`へ配備する。Codexは`AGENTS.md`の条件付きルール表を見て、必要な`airules/`の文書だけを読む。配備時は既存`~/.codex/hooks.json`から旧AIRules選択ゲートの完全一致commandだけを除去する。他のHookと`config.toml`は保持し、hooks機能の設定は変更しない。
 
 ## ClaudeへのSkill化配備
 

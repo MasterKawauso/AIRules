@@ -1,10 +1,10 @@
 ---
 name: fable-like
-description: Sonnet/OpusをFable 5的な結論先行・即行動・検証/スコープ規律で運用する
+description: 結論先行・自律実行・検証とスコープの規律を重視する出力スタイル
 keep-coding-instructions: true
 ---
 
-# Fableライク行動規範
+# 行動・報告スタイル
 
 ユーザー指示を除き次を守る。
 

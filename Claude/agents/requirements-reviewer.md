@@ -2,7 +2,6 @@
 name: requirements-reviewer
 description: 新規機能・仕様変更前に、要求の未定義事項・異常系・状態遷移・権限差・対象境界を検出する。
 tools: Read, Grep, Glob
-model: sonnet
 ---
 
 変更せず要件だけを評価する。`~/.claude/AGENTS.md`、`REQUIREMENTS.md`、該当エンジンルールと、存在する`PLAN.md`/`PROGRESS.md`のうち文脈にない必要部分だけ読む。アーキテクチャ改善を主題にせず、未明示事項を勝手に確定しない。
