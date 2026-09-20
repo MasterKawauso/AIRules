@@ -7,6 +7,7 @@
 - メソッド・メンバー変数への日本語説明コメント規則を常時読込の`AGENTS.md`実装・検証へ追加。従来は`PITFALLS.md`にC#メソッドだけの記述が残っており、メンバー変数が対象外で、条件発火のSkill側にしかないため適用が安定しなかった
 - 言語標準記法（C#はXMLドキュメントコメント、GDScript/Pythonはdocstring、C++はDoxygen等）を指定し、既存ファイルの記法を優先。自明なgetter/setterと名前と意味が一致する定数は省略可、未変更箇所へは広げない
 - `PITFALLS.md`はC#の具体記法例と正本への参照に整理し、`REVIEW.md`のReadability観点へ説明コメントの有無を明記。deploy.ps1でCodex/Claude双方へ配備済み
+- 説明コメントは概要（C#は`<summary>`）へ収め、`<remarks>`等の補足タグは原則書かない規則を`AGENTS.md`実装・検証と`PITFALLS.md`へ追加
 - Git管理下のコード実変更は着手前に作業branch・worktreeを作る規則を常時読込の`AGENTS.md`自律実行と確認へ追加。既定フローは`GIT.md`にあったが、条件発火のSkillがgit操作直前にしか読まれず、実装をmain上で終えてからcommit時に気づく構造だったため、着手判断に必要な1行だけを常時側へ出した
 - `deploy.ps1`のClaude用`AGENTS.md`変換を表セルだけでなく本文にも広げた。本文の`WORKFLOW.md`・`GAME_COMMON.md`・`GITHUB.md`・`airules/`はClaude側に実体が無く壊れた参照のままだったため、バッククォート囲みの単独トークンをSkill参照へ変換する。変換後に規則名の`.md`参照または`airules/`が残っていれば書込み前にthrowする検査を追加した
 - 検証: 構文解析、ガードの単体動作（生参照で発火・変換済みで無発火）、本文マップからUNITYを外した壊れた複製での発火を一時ディレクトリで確認。実配備でClaude側4箇所の解決とCodex側の本文無変更を確認

@@ -16,7 +16,7 @@
 /// <param name="value">value引数説明。</param>
 /// <param name="count">count引数説明。</param>
 /// <returns>返り値説明。</returns>
-のように改行し、メンバー変数にも`/// <summary>`で意味を書く。未変更箇所へ広げない
+のように改行し、メンバー変数にも`/// <summary>`で意味を書く。`<remarks>`は原則使わず、補足も`<summary>`へ収める。未変更箇所へ広げない
 
 ## エンジン別
 
