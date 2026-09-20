@@ -22,7 +22,7 @@
 - Architecture: 設計・責務・依存/循環・フェーズに対する抽象化の重さ・保守/拡張性
 - Safety: Null、Dispose、イベント解除、例外、ログ
 - Performance: Update/Tick、Alloc/GC、不要な検索、LINQ/foreach Alloc、過剰最適化
-- Readability: 命名、コメント、メソッド長、クラス責務
+- Readability: 命名、メソッド長、クラス責務。追加・変更したメソッド・関数とメンバー変数に日本語の説明コメントがあるか（`AGENTS.md`実装・検証）
 - Gameplay: ゲーム性、UI/UX、演出、調整容易性
 - Unity: MonoBehaviour、Inspector、ScriptableObject、Unity依存、Addressables
 - UE: Blueprint/C++責務、GameMode系責務、Enhanced Input、Replication/RPC、Tick
