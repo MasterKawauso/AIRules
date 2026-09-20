@@ -257,6 +257,23 @@ function Assert-ExpectedClaudeAgentsTransform {
         'GIT.md' = '/airules-git'
         'GITHUB.md' = '/airules-github'
     }
+    # 表セル以外の本文にも同じ規則名が現れる。Claude側に airules/ は無いため、
+    # バッククォート囲みの単独トークンをSkill参照へ変換する。
+    $bodyReplacements = [ordered]@{
+        '`REQUIREMENTS.md`' = '`/airules-requirements`'
+        '`PITFALLS.md`' = '`/airules-pitfalls`'
+        '`THINKING.md`' = '`/airules-thinking`'
+        '`DESIGN.md`' = '`/airules-design`'
+        '`WORKFLOW.md`' = '`/airules-workflow`'
+        '`UNITY.md`' = '`/airules-unity`'
+        '`UE5.md`' = '`/airules-ue5`'
+        '`GODOT.md`' = '`/airules-godot`'
+        '`GAME_COMMON.md`' = '`/airules-game-common`'
+        '`REVIEW.md`' = '`/airules-review`'
+        '`GIT.md`' = '`/airules-git`'
+        '`GITHUB.md`' = '`/airules-github`'
+        '`airules/`' = '対応するSkills'
+    }
     foreach ($file in @('REQUIREMENTS.md','PITFALLS.md','THINKING.md','DESIGN.md','WORKFLOW.md','UNITY.md','UE5.md','GODOT.md','GAME_COMMON.md','REVIEW.md','GIT.md','GITHUB.md')) {
         if (-not $SkillsByFile.ContainsKey($file)) { throw "Claude AGENTS.md references missing source rule: $file" }
     }
@@ -276,6 +293,9 @@ function Assert-ExpectedClaudeAgentsTransform {
             $oldCell = "| $($entry.Key) |"
             if ($lines[$i].Contains($oldCell)) { $lines[$i] = $lines[$i].Replace($oldCell, "| $($entry.Value) |") }
         }
+        foreach ($entry in $bodyReplacements.GetEnumerator()) {
+            if ($lines[$i].Contains($entry.Key)) { $lines[$i] = $lines[$i].Replace($entry.Key, $entry.Value) }
+        }
         # 条件付きルール表に未変換の .md 参照が残っていれば、表へ行が追加されたのに
         # 変換定義が更新されていない。Claude側には airules/ が無いため壊れた参照になる。
         if ($lines[$i].TrimEnd() -eq '## 条件付きルール（作業前に必読）') { $inTable = $true; $tableHeadingSeen = $true; continue }
@@ -288,6 +308,17 @@ function Assert-ExpectedClaudeAgentsTransform {
     }
     # 見出しが改名されると上の検査が黙って無効になるため、見出しの存在自体を必須にする。
     if (-not $tableHeadingSeen) { throw "Claude AGENTS.md conditional-rule table heading was not found; the unconverted-reference check would be silently skipped. No files were written." }
+    # 表の外にも未変換の規則参照が残らないようにする。Claude側には実体が無く壊れた参照になる。
+    $converted = [string]::Join("`r`n", $lines)
+    $ruleNames = @('REQUIREMENTS','PITFALLS','THINKING','DESIGN','WORKFLOW','UNITY','UE5','GODOT','GAME_COMMON','REVIEW','GIT','GITHUB')
+    foreach ($name in $ruleNames) {
+        if ($converted -match [regex]::Escape("``$name.md``")) {
+            throw "Claude AGENTS.md still references rule file '$name.md' after conversion. Add it to the replacement map in deploy.ps1. No files were written."
+        }
+    }
+    if ($converted -match [regex]::Escape('``airules/``')) {
+        throw "Claude AGENTS.md still references 'airules/' after conversion. No files were written."
+    }
     return [string]::Join("`r`n", $lines)
 }
 
